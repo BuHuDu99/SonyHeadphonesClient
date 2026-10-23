@@ -1,0 +1,136 @@
+# Sony Headphones Client
+
+## Bản phát hành chính thức
+
+**macOS 1.4.4 — Build 23**, chốt ngày 23/10/2026.
+
+Mở `output/SonyHeadphonesClient.app`. Thư mục output chỉ giữ một bản chính thức. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS trước khi kết nối; có thể chọn “Khám phá giao diện” để xem thử mà không gửi lệnh đến tai nghe.
+
+Giao diện tiếng Việt, chữ mặc định 14, thanh bên thích ứng, chống ồn/xuyên âm, EQ 5 dải và Clear Bass, điều khiển nhạc. Nguồn được biên dịch lại sau khi dọn mã không dùng; kiểm thử EQ và pin đạt 2/2. Bản macOS được ký ad-hoc tại máy, chưa có chứng thực Apple Developer/notarization.
+
+
+Ứng dụng desktop điều khiển tai nghe Sony qua Bluetooth, với giao diện tiếng Việt. Phát triển từ [mos9527/SonyHeadphonesClient](https://github.com/mos9527/SonyHeadphonesClient), dựa trên [Plutoberth/SonyHeadphonesClient](https://github.com/Plutoberth/SonyHeadphonesClient). Giữ nguyên ghi nhận tác giả và giấy phép MIT.
+
+Tải bản macOS Apple Silicon tại [Releases](https://github.com/BuHuDu99/SonyHeadphonesClient/releases). Bản phát hành được kiểm tra trên macOS; mã nguồn Windows/Linux được giữ lại nhưng chưa được xác nhận với giao diện này.
+
+## Quyền riêng tư và chi phí
+
+Ứng dụng không cần tài khoản hoặc khóa API. Điều khiển tai nghe dùng Bluetooth cục bộ và đọc thông tin đang phát trên máy. Repository không chứa cấu hình cá nhân, token GitHub, APK tham khảo hoặc tệp tạm. GitHub Actions được tắt ở repository; workflow trong mã nguồn chỉ hỗ trợ chạy thủ công. Không có workflow tự động triển khai hay gọi dịch vụ AI trả phí.
+
+## DISCLAIMER
+
+**THIS PROGRAM IS NOT AFFILIATED WITH SONY. YOU ARE RESPONSIBLE FOR ANY DAMAGE THAT MAY OCCUR WHILE USING THIS PROGRAM.**
+
+## Features
+
+Only the device-specific functions are listed here. If unspecified, the functionalities would be generally available.
+
+If the feature support status for your own device is missing/incorrect/untested here, feel free to submit an [Issue](https://github.com/mos9527/SonyHeadphonesClient/issues/new) or a Pull Request so this table can be kept up-to-date!
+
+**ATTENTION:** Older devices (e.g. XM3s) **will not work** with this fork due to updated BT protocols and are therefore discarded. Use [Plutoberth's original SonyHeadphonesClient](https://github.com/Plutoberth/SonyHeadphonesClient) instead.
+
+Check the [Device Support](docs/device-support/) folder for more details on confirmed per-device function availability.
+
+## Downloads
+
+Bản macOS Apple Silicon Build 23 có tại [Releases](https://github.com/BuHuDu99/SonyHeadphonesClient/releases). Mã nguồn Windows/Linux được cung cấp để tự biên dịch; chưa có tệp phát hành đã kiểm tra cho hai nền tảng này.
+
+
+## For Developers
+### Cloning the repo
+```git clone --recurse-submodules https://github.com/BuHuDu99/SonyHeadphonesClient.git```
+
+### Building
+- `cmake` is required for Windows, macOS and Linux builds. A C++20 compliant compiler is also required.
+- `glfw` will always be built and statically linked with the application.
+Please follow the guide in https://www.glfw.org/docs/3.3/compile.html#compile_deps to ensure its dependencies.
+- On non-macOS platforms, OpenGL is used for GUI rendering. Make sure your system has the requisite GL libs intalled.
+
+#### Windows
+Install [cmake](https://cmake.org/download/) (3.29.3 works) and install [Visual Studio Community 2022](https://visualstudio.microsoft.com/vs/) the C++ components:
+* MSVC - VS 2022 C++ x64/x86 build tools
+* Windows SDK
+
+You can build, and debug the app with [Visual Studio's CMake intergration](https://learn.microsoft.com/en-us/cpp/build/cmake-projects-in-visual-studio?view=msvc-170#ide-integration).
+
+You can also do this from the command line. In Visual Studio Run `Tools --> Command Line --> Developer Command Prompt` ,and then:
+```
+cd SonyHeadphonesClient
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+#### Linux
+`DBus` and `libbluetooth`(`bluez`) are required for Bluetooth support.
+
+- Debian / Ubuntu:
+
+```bash
+sudo apt install libbluetooth-dev libdbus-1-dev
+# For GLFW
+sudo apt-get install xorg-dev
+```
+
+- Fedora:
+
+```bash
+sudo dnf install bluez-libs-devel dbus-devel
+```
+
+- Arch Linux:
+
+```bash
+sudo pacman -S bluez dbus
+```
+
+You can then build the app with CMake, with a C++20 compliant compiler installed.
+```
+cd SonyHeadphonesClient
+mkdir build
+cd build
+cmake ..
+cmake --build .
+```
+
+
+#### macOS
+You need to have XCode and CMake installed to build the application.
+
+Pair the headphones once in **System Settings → Bluetooth** before opening the client. The client can then open the Sony control channel itself, remember the last successful device, and reconnect when that paired device becomes available.
+
+> This repository builds a macOS desktop app, not an iOS app. Its Sony control connection uses Classic Bluetooth RFCOMM through `IOBluetooth`, an API that Apple does not expose to third-party iOS apps.
+
+To build a universal binary, you can use the following commands:
+```bash
+cd SonyHeadphonesClient
+mkdir build
+cd build
+cmake -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" ..
+cmake --build .
+```
+
+An app bundle will be created in the `build` directory named `SonyHeadphonesClient.app`.
+
+## Contributing
+### Capturing Bluetooth Packets
+See [Packet Capture](docs/packet-capture.md) doc for more info.
+
+## Contributors
+
+* [Plutoberth](https://github.com/Plutoberth) - Initial Work and Windows Version
+* [Mr-M33533K5](https://github.com/Mr-M33533K5) - BT Interface and Other Help
+* [semvis123](https://github.com/semvis123) - macOS Version
+* [jimzrt](https://github.com/jimzrt) - Linux Version
+* [guilhermealbm](https://github.com/guilhermealbm) - Noise Cancelling Switch
+
+## Third-party
+* [GLFW](https://www.glfw.org/) - Window and Input
+* [Dear ImGui](https://github.com/ocornut/imgui/) - GUI
+* [tomlplusplus](https://github.com/marzer/tomlplusplus) - Config file parsing
+* [cascadia-code](https://github.com/microsoft/cascadia-code) - Default font supplied with the app
+
+## License
+
+Distributed under the [MIT License](https://github.com/Plutoberth/SonyHeadphonesClient/blob/master/LICENSE). See LICENSE for more information.
