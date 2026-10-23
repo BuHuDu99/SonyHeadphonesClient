@@ -4,7 +4,9 @@
 
 **macOS 1.4.4 — Build 23**, chốt ngày 23/10/2026.
 
-Mở `output/SonyHeadphonesClient.app`. Thư mục output chỉ giữ một bản chính thức. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS trước khi kết nối; có thể chọn “Khám phá giao diện” để xem thử mà không gửi lệnh đến tai nghe.
+Cài bằng DMG trong [Releases](https://github.com/BuHuDu99/SonyHeadphonesClient/releases/tag/v1.4.4-build23): mở DMG, kéo `SonyHeadphonesClient.app` vào `Applications`, tháo ổ DMG rồi mở app từ Applications. Ứng dụng chạy độc lập với mã nguồn. Bản nhị phân hiện tại yêu cầu **Mac Apple Silicon, macOS 27.0 trở lên**.
+
+Có thể mở trực tiếp `output/SonyHeadphonesClient.app`. Thư mục output chỉ giữ một bản chính thức. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS trước khi kết nối; có thể chọn “Khám phá giao diện” để xem thử mà không gửi lệnh đến tai nghe.
 
 Giao diện tiếng Việt, chữ mặc định 14, thanh bên thích ứng, chống ồn/xuyên âm, EQ 5 dải và Clear Bass, điều khiển nhạc. Nguồn được biên dịch lại sau khi dọn mã không dùng; kiểm thử EQ và pin đạt 2/2. Bản macOS được ký ad-hoc tại máy, chưa có chứng thực Apple Developer/notarization.
 
@@ -134,3 +136,7 @@ See [Packet Capture](docs/packet-capture.md) doc for more info.
 ## License
 
 Distributed under the [MIT License](https://github.com/Plutoberth/SonyHeadphonesClient/blob/master/LICENSE). See LICENSE for more information.
+
+## Đóng gói DMG
+
+Sau khi có app đã biên dịch, chạy `bash tools/package_macos.sh`. Bộ cài chứa app, lối tắt Applications và hướng dẫn; không cài dịch vụ nền hoặc cần quyền quản trị.
