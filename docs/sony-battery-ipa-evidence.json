@@ -70,6 +70,14 @@
     "UNKNOWN": 2,
     "CHARGED": 3
   },
+  "static_battery_functions": {
+    "0x20": "0x0",
+    "0x21": "0x1",
+    "0x22": "0x2",
+    "0x28": "0x8",
+    "0x29": "0x9",
+    "0x2a": "0xa"
+  },
   "static_battery_payload_sizes": {
     "0x0": 4,
     "0x1": 6,
@@ -85,5 +93,6 @@
   "byte_values_exercised": 256,
   "desktop_values_matched": 256,
   "desktop_payload_sizes_matched": 256,
+  "desktop_battery_function_mappings_matched": 256,
   "limitations": "Does not execute the complete Sony app, validate device capabilities or compare a physical battery."
 }

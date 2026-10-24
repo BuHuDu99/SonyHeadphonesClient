@@ -5,6 +5,7 @@
 #include "SonyBattery.h"
 
 #include <mutex>
+#include <atomic>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -222,6 +223,7 @@ public:
 
 private:
 	BluetoothWrapper &_conn;
+	std::atomic<uint16_t> _batterySupportedTypes{0};
 	std::optional<uint8_t> _batterySinglePayloadType;
 	std::optional<uint8_t> _batteryDualPayloadType;
 	std::optional<uint8_t> _batteryCasePayloadType;
@@ -230,6 +232,7 @@ private:
 	HeadphonesEvent _handleInitResponse(const HeadphonesMessage &msg);
 	HeadphonesEvent _handleNcAsmParam(const HeadphonesMessage &msg);
 	HeadphonesEvent _handleBatteryLevelRet(const HeadphonesMessage &msg);
+    HeadphonesEvent _handleSupportedFunctions(const HeadphonesMessage &msg);
 	HeadphonesEvent _handlePlaybackStatus(const HeadphonesMessage &msg);
 	HeadphonesEvent _handlePlaybackSndPressureRet(const HeadphonesMessage &msg);
 	HeadphonesEvent _handleVoiceGuidanceParam(const HeadphonesMessage &msg);

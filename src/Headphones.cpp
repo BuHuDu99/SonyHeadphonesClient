@@ -189,6 +189,9 @@ void Headphones::requestInit()
 	}, DATA_TYPE::DATA_MDR);
 	waitForAck();
 
+    _conn.sendCommand({static_cast<uint8_t>(COMMAND_TYPE::SUPPORT_FUNCTION_GET), 0x00}, DATA_TYPE::DATA_MDR);
+    waitForAck();
+
 	/* Playback Metadata */
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::PLAYBACK_STATUS_GET),
@@ -292,42 +295,17 @@ void Headphones::requestSync()
 	// Some values are taken from:
 	// https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v1/PayloadTypeV1.java
 
-	// Battery variants and threshold fields: docs/sony-battery-ipa-audit.md.
-	_conn.sendCommand({
-		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x09 // Left/right battery with two trailing thresholds
-	}, DATA_TYPE::DATA_MDR);
-	waitForAck();
-
-	_conn.sendCommand({
-		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x01 // Left/right battery
-	}, DATA_TYPE::DATA_MDR);
-	waitForAck();
-
-    _conn.sendCommand({
-        static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-        0x08 // Single battery with trailing threshold
-    }, DATA_TYPE::DATA_MDR);
-    waitForAck();
-
-	_conn.sendCommand({
-		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x00 // SINGLE (over-ear models)
-	}, DATA_TYPE::DATA_MDR);
-	waitForAck();
-
-	_conn.sendCommand({
-		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x0a // Case battery with trailing threshold
-	}, DATA_TYPE::DATA_MDR);
-	waitForAck();
-
-	_conn.sendCommand({
-		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x02 // Case battery
-	}, DATA_TYPE::DATA_MDR);
-	waitForAck();
+    // Query only battery functions advertised by this device, never probe layouts.
+    const auto supported = _batterySupportedTypes.load();
+    if (!supported) {
+        _conn.sendCommand({static_cast<uint8_t>(COMMAND_TYPE::SUPPORT_FUNCTION_GET), 0x00}, DATA_TYPE::DATA_MDR);
+        waitForAck();
+    }
+    for (uint8_t type : {0x08, 0x00, 0x09, 0x01, 0x0a, 0x02}) {
+        if (!(supported & (1u << type))) continue;
+        _conn.sendCommand({static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET), type}, DATA_TYPE::DATA_MDR);
+        waitForAck();
+    }
 
 	/* Playback */
 	_conn.sendCommand({
@@ -396,8 +374,28 @@ HeadphonesEvent Headphones::_handleNcAsmParam(const HeadphonesMessage& msg) {
     return HeadphonesEvent::NcAsmParamUpdate;
 }
 
+HeadphonesEvent Headphones::_handleSupportedFunctions(const HeadphonesMessage& msg) {
+    if (msg.getSize() < 3 || msg[1] != 0 || msg.getSize() != 3u + 2u * msg[2])
+        return HeadphonesEvent::MessageUnhandled;
+    uint16_t supported = 0;
+    for (size_t index = 3; index < msg.getSize(); index += 2) {
+        const auto type = sonyBatteryTypeForFunction(msg[index]);
+        if (type >= 0) supported |= uint16_t(1u << type);
+    }
+    supported = selectSonyBatteryTypes(supported);
+    if (_batterySupportedTypes.exchange(supported) != supported) {
+        _batterySinglePayloadType.reset();
+        _batteryDualPayloadType.reset();
+        _batteryCasePayloadType.reset();
+        batteryLayout = BatteryLayout::Unknown;
+        statBatteryL.overwrite(-1); statBatteryR.overwrite(-1); statBatteryCase.overwrite(-1);
+    }
+    return HeadphonesEvent::BatteryLevelUpdate;
+}
+
 HeadphonesEvent Headphones::_handleBatteryLevelRet(const HeadphonesMessage& msg) {
-    if (msg.getSize() < 2 || msg.getSize() != sonyBatteryPayloadSize(msg[1]))
+    if (msg.getSize() < 2 || msg.getSize() != sonyBatteryPayloadSize(msg[1]) ||
+        !(_batterySupportedTypes.load() & (1u << msg[1])))
         return HeadphonesEvent::MessageUnhandled;
 
     // Charging status is an enum (including UNKNOWN and CHARGED), not a boolean.
@@ -684,6 +682,9 @@ HeadphonesEvent Headphones::_handleMessage(HeadphonesMessage const& msg)
         if (msg.getSize() < minimum) return HeadphonesEvent::MessageUnhandled;
         switch (command)
         {
+        case COMMAND_TYPE::SUPPORT_FUNCTION_RET:
+            result = _handleSupportedFunctions(msg);
+            break;
         case COMMAND_TYPE::INIT_RESPONSE:
             result = _handleInitResponse(msg);
             break;

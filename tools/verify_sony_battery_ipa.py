@@ -93,6 +93,22 @@ def verify(ipa, checker=None):
     if movz(0x10141ad04) != 6 or movz(0x10141addc) != 7:
         raise ValueError("Unexpected left/right threshold indices")
 
+    battery_functions = [-1] * 256
+    for name, literal, instruction, value, battery_type in [
+        ("BATTERY_LEVEL_INDICATOR", 0x1032ce370, 0x1016d16f4, 0x20, 0),
+        ("LEFT_RIGHT_BATTERY_LEVEL_INDICATOR", 0x1032ce390, 0x1016d1780, 0x21, 1),
+        ("CRADLE_BATTERY_LEVEL_INDICATOR", 0x1032ce3b0, 0x1016d180c, 0x22, 2),
+        ("BATTERY_LEVEL_WITH_THRESHOLD", 0x1032ce410, 0x1016d1b54, 0x28, 8),
+        ("LR_BATTERY_LEVEL_WITH_THRESHOLD", 0x1032ce430, 0x1016d1be0, 0x29, 9),
+        ("CRADLE_BATTERY_LEVEL_WITH_THRESHOLD", 0x1032ce450, 0x1016d1c6c, 0x2a, 10),
+    ]:
+        if cfstring(literal) != name or movz(instruction) != value:
+            raise ValueError("Unexpected battery capability mapping")
+        battery_functions[value] = battery_type
+    if (cfstring(0x1032c3d70) != "CONNECT_GET_SUPPORT_FUNCTION" or movz(0x101494558) != 6 or
+        cfstring(0x1032c3d90) != "CONNECT_RET_SUPPORT_FUNCTION" or movz(0x10149459c) != 7):
+        raise ValueError("Unexpected capability command codes")
+
     fingerprints = {}
     functions = {}
     for name, (address, size) in ROUTINES.items():
@@ -135,7 +151,7 @@ def verify(ipa, checker=None):
     matched = None
     if checker:
         client_values = json.loads(subprocess.check_output([str(checker.resolve()), "--dump-decoder"], text=True))
-        if client_values != {"percentages": values, "payload_sizes": payload_sizes}:
+        if client_values != {"percentages": values, "payload_sizes": payload_sizes, "battery_functions": battery_functions}:
             raise ValueError("Desktop decoder differs from Sony helpers")
         matched = len(values)
     return {"ipa_sha256": digest, "version": "13.2.0", "build": "510.9",
@@ -143,10 +159,12 @@ def verify(ipa, checker=None):
             "routines": fingerprints, "field_indices": indices,
             "sony_valid_level_range": [0, 100], "zero_is_valid": True,
             "static_charging_codes": charging,
+            "static_battery_functions": {hex(i): hex(n) for i, n in enumerate(battery_functions) if n >= 0},
             "static_battery_payload_sizes": {hex(i): n for i, n in enumerate(payload_sizes) if n},
             "static_left_right_threshold_indices": [6, 7],
             "byte_values_exercised": len(values), "desktop_values_matched": matched,
             "desktop_payload_sizes_matched": len(payload_sizes) if checker else None,
+            "desktop_battery_function_mappings_matched": len(battery_functions) if checker else None,
             "limitations": "Does not execute the complete Sony app, validate device capabilities or compare a physical battery."}
 
 

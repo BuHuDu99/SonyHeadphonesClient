@@ -8,7 +8,8 @@ Applications, tháo DMG rồi mở `/Applications/SonyHeadphonesClient.app`.
 
 - **Pin:** thiết bị một pin hiển thị một giá trị; tai nghe hai bên hiển thị L/R riêng.
   Đối chiếu bộ kiểm tra/giải mã pin trong IPA Sony 13.2.0: giữ cả 0%, hỗ trợ
-  trạng thái sạc đầy và payload có threshold; `--` khi giá trị nằm ngoài 0–100.
+  trạng thái sạc đầy và payload có threshold. Chỉ hỏi loại pin được capability
+  thiết bị công bố; `--` khi chưa có dữ liệu hợp lệ.
 - **EQ Live preview:** chọn preset hoặc chỉnh thanh EQ để nghe thử. App đọc lại
   đường cong từ tai nghe để đồng bộ 5 dải và Clear Bass. **Apply** giữ EQ đang nghe;
   **Revert**, rời trang EQ, ẩn/minimize cửa sổ hoặc thoát app sẽ khôi phục EQ trước đó.

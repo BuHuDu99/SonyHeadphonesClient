@@ -57,8 +57,8 @@ Getter threshold single/case là `THMSGV2T1PowerRetStatusBatteryThresholdBase`:
   giá trị level được đọc và kiểm tra độc lập với charging.
 - Sửa type `0x09` thành payload 8 byte và `0x0a` thành 5 byte; thêm single `0x08`.
 - Single chỉ hiện một số; dual hiện L/R riêng. Chọn layout từ inquired type của
-  phản hồi có cấu trúc hợp lệ, không suy từ số phần trăm. Variant được giữ ổn định
-  trong mỗi kết nối. Chưa thực hiện thương lượng toàn bộ capability như app Sony.
+  phản hồi đã được capability cho phép, không suy từ số phần trăm. Variant được giữ
+  ổn định trong mỗi kết nối. Không thăm dò những layout chưa được thiết bị công bố.
 
 ## Tái lập bằng mã Sony được giả lập
 
@@ -90,3 +90,39 @@ firmware WH-1000XM5 2.5.1 qua Bluetooth thật.
 
 Kiểm thử Build 27: CTest Debug và Release đạt 6/6; SonyBatteryTests qua
 ASan/UBSan không báo lỗi. Các kiểm tra này không cần kết nối tai nghe.
+
+
+## Chọn loại pin theo capability và phản hồi thật
+
+`THMSGV2T1ConnectRetSupportFunction.getSupportFunctions` (IMP `0x1016c7624`)
+đọc count ở byte 2, sau đó các cặp (function code, version) từ byte 3.
+`THMSGV2T1Command.initialize` (`0x101494314`) xác nhận GET `0x06`, RET `0x07`;
+truy vấn table 1 là `[06, 00]`. Parser desktop yêu cầu đúng `3 + 2*count` byte,
+header table 0, rồi chỉ cho phép các function pin sau:
+
+| Function Sony | Code capability | Type bản tin pin |
+|---|---|---|
+| BATTERY_LEVEL_INDICATOR | `0x20` | `0x00` |
+| LEFT_RIGHT_BATTERY_LEVEL_INDICATOR | `0x21` | `0x01` |
+| CRADLE_BATTERY_LEVEL_INDICATOR | `0x22` | `0x02` |
+| BATTERY_LEVEL_WITH_THRESHOLD | `0x28` | `0x08` |
+| LR_BATTERY_LEVEL_WITH_THRESHOLD | `0x29` | `0x09` |
+| CRADLE_BATTERY_LEVEL_WITH_THRESHOLD | `0x2a` | `0x0a` |
+
+Các code được đối chiếu `ComSonySongpalTandemfamilyMessageMdrV2FunctionType.initialize`
+(`0x1016d0ef4`), literal tên enum và lệnh gán byte code. Công cụ tái lập cũng kiểm tra
+ánh xạ này. Không xem byte version `0xff` là loại pin hay phần trăm.
+
+Nếu chưa nhận capability hợp lệ, app chờ và chỉ hỏi lại capability, không đoán loại
+pin bằng cách thử các query. Nếu capability đồng thời khai báo single và dual,
+app giữ pin chưa xác định. Nếu cùng một layout có cả bản thường và threshold,
+app chọn bản threshold và không trộn giá trị giữa các variant. Case chỉ dùng với dual.
+
+Khi kiểm tra chỉ đọc trên WH-1000XM5 / firmware 2.5.1 của người dùng, bảng capability
+thực tế có `20 ff`, không công bố chức năng dual/case. Thăm dò cũ vẫn nhận được
+`23 09 00 00 09 00 64 64`, gây số giả L 0% / R 9%; đây là lý do không thể tin một
+phản hồi chỉ vì các byte nằm trong 0–100. Sau khi lọc capability, client chỉ hỏi
+single và nhận `23 00 5f 00`: mức pin **95%**, một giá trị duy nhất.
+
+Đây là xác nhận parsing/hiển thị từ phản hồi thật, chưa so sánh với app Sony chạy
+trên iPhone hay đo dung lượng pin. Không gửi lệnh thay đổi cấu hình trong kiểm tra này.

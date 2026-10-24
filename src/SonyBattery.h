@@ -22,6 +22,30 @@ constexpr size_t sonyBatteryPayloadSize(uint8_t type)
     }
 }
 
+constexpr int sonyBatteryTypeForFunction(uint8_t function)
+{
+    switch (function) {
+    case 0x20: return 0x00;
+    case 0x21: return 0x01;
+    case 0x22: return 0x02;
+    case 0x28: return 0x08;
+    case 0x29: return 0x09;
+    case 0x2a: return 0x0a;
+    default: return -1;
+    }
+}
+
+constexpr uint16_t selectSonyBatteryTypes(uint16_t supported)
+{
+    const bool single = supported & ((1u << 0) | (1u << 8));
+    const bool dual = supported & ((1u << 1) | (1u << 9));
+    if (single == dual) return 0;
+    if (single) return supported & (1u << 8) ? 1u << 8 : 1u << 0;
+    if (supported & (1u << 9)) supported &= ~(1u << 1);
+    if (supported & (1u << 10)) supported &= ~(1u << 2);
+    return supported;
+}
+
 enum class SonyBatteryLayout { Unknown, Single, Dual };
 
 struct SonyBatteryDisplay {

@@ -217,3 +217,7 @@ Kết quả xác nhận thang 0–100; sửa Build 26 để giữ 0% cho từng 
 charging UNKNOWN/CHARGED, sửa độ dài payload threshold và thêm type single 0x08.
 Các phát biểu Build 26 về 0 của earbud là absent và chiều dài 6/4 cho mọi biến thể
 đã được thay thế bởi bằng chứng Sony này. Chưa xác nhận trên tai nghe thật.
+
+Bổ sung kiểm tra trực tiếp trên WH-1000XM5: xác định capability pin single (`0x20`),
+loại bỏ phản hồi giả từ query dual không hỗ trợ; nhận bản tin single 95%. Chỉ query
+loại pin được capability công bố. Chưa đối chiếu màn hình app Sony hoặc dung lượng pin.

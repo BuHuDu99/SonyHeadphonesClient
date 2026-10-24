@@ -28,6 +28,9 @@ int main(int argc, char** argv) {
         std::cout << "],\"payload_sizes\":[";
         for (int raw = 0; raw <= 255; ++raw)
             std::cout << (raw ? "," : "") << sonyBatteryPayloadSize(raw);
+        std::cout << "],\"battery_functions\":[";
+        for (int raw = 0; raw <= 255; ++raw)
+            std::cout << (raw ? "," : "") << sonyBatteryTypeForFunction(raw);
         std::cout << "]}\n";
         return 0;
     }
@@ -44,9 +47,30 @@ int main(int argc, char** argv) {
     assert(formatSonyBattery(Layout::Dual, -1, 5, -1).compact == "L -- · R 5%");
     assert(formatSonyBattery(Layout::Unknown, 50, 60, 70).compact == "--");
 
+    {
+        BluetoothWrapper connection(std::make_unique<BatteryConnector>());
+        Headphones xm5(connection, true);
+        const Buffer unsupported{0x23, 0x09, 0, 0, 9, 0, 100, 100};
+        assert(deliver(xm5, unsupported) == HeadphonesEvent::MessageUnhandled);
+        assert(xm5.batteryLayout == Layout::Unknown);
+        assert(deliver(xm5, {0x07, 0, 1, 0x20, 0xff}) == HeadphonesEvent::BatteryLevelUpdate);
+        assert(deliver(xm5, unsupported) == HeadphonesEvent::MessageUnhandled);
+        assert(deliver(xm5, {0x23, 0, 96, 0}) == HeadphonesEvent::BatteryLevelUpdate);
+        assert(xm5.batteryLayout == Layout::Single && xm5.statBatteryL.current == 96);
+        assert(deliver(xm5, {0x07, 0, 2, 0x21, 1}) == HeadphonesEvent::MessageUnhandled);
+        assert(xm5.statBatteryL.current == 96);
+        assert(deliver(xm5, {0x07, 1, 1, 0x21, 1}) == HeadphonesEvent::MessageUnhandled);
+        assert(xm5.statBatteryL.current == 96);
+        assert(deliver(xm5, {0x07, 0, 2, 0x20, 1, 0x21, 1}) == HeadphonesEvent::BatteryLevelUpdate);
+        assert(deliver(xm5, unsupported) == HeadphonesEvent::MessageUnhandled);
+        assert(xm5.batteryLayout == Layout::Unknown);
+    }
+    assert(selectSonyBatteryTypes((1u << 0) | (1u << 8)) == (1u << 8));
+    assert(selectSonyBatteryTypes((1u << 1) | (1u << 9) | (1u << 2) | (1u << 10)) == ((1u << 9) | (1u << 10)));
     for (uint8_t type : {0x00, 0x08}) {
         BluetoothWrapper connection(std::make_unique<BatteryConnector>());
         Headphones single(connection, true);
+        assert(deliver(single, {0x07, 0x00, 1, uint8_t(type + 0x20), 1}) == HeadphonesEvent::BatteryLevelUpdate);
         Buffer message{0x23, type, 0, 0};
         if (type == 8) message.push_back(25);
         assert(deliver(single, message) == HeadphonesEvent::BatteryLevelUpdate);
@@ -70,6 +94,7 @@ int main(int argc, char** argv) {
     for (uint8_t type : {0x01, 0x09}) {
         BluetoothWrapper connection(std::make_unique<BatteryConnector>());
         Headphones dual(connection, true);
+        assert(deliver(dual, {0x07, 0x00, 1, uint8_t(type + 0x20), 1}) == HeadphonesEvent::BatteryLevelUpdate);
         Buffer message{0x23, type, 0, 2, 0, 3};
         if (type == 9) message.insert(message.end(), {10, 20});
         assert(deliver(dual, message) == HeadphonesEvent::BatteryLevelUpdate);
@@ -94,6 +119,7 @@ int main(int argc, char** argv) {
     for (uint8_t type : {0x02, 0x0a}) {
         BluetoothWrapper connection(std::make_unique<BatteryConnector>());
         Headphones dual(connection, true);
+        assert(deliver(dual, {0x07, 0x00, 2, 0x21, 1, uint8_t(type + 0x20), 1}) == HeadphonesEvent::BatteryLevelUpdate);
         Buffer message{0x23, type, 0, 3};
         if (type == 10) message.push_back(20);
         assert(deliver(dual, message) == HeadphonesEvent::BatteryLevelUpdate);
