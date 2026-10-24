@@ -395,47 +395,46 @@ HeadphonesEvent Headphones::_handleNcAsmParam(const HeadphonesMessage& msg) {
 }
 
 HeadphonesEvent Headphones::_handleBatteryLevelRet(const HeadphonesMessage& msg) {
-	if (msg.getSize() < 3)
-		return HeadphonesEvent::MessageUnhandled;
-
-	const auto validLevel = [](uint8_t raw) {
-		// 0 and 0xff are commonly used as "not present / not reported" for
-		// individual earbuds. Never clamp protocol sentinels to a fake 100%.
-		return raw > 0 && decodeSonyBatteryPercentage(raw) >= 0;
-	};
+    if (msg.getSize() < 4)
+        return HeadphonesEvent::MessageUnhandled;
 
     switch (msg[1]) {
-    case 0x00: // Single battery (over-ear models)
-		if (batteryLayout == BatteryLayout::Dual || decodeSonyBatteryPercentage(msg[2]) < 0)
-			return HeadphonesEvent::MessageUnhandled;
-		statBatteryL.overwrite(decodeSonyBatteryPercentage(msg[2]));
-		statBatteryR.overwrite(-1);
-		statBatteryCase.overwrite(-1);
-		batteryLayout = BatteryLayout::Single;
-		return HeadphonesEvent::BatteryLevelUpdate;
-    case 0x01: // Dual / Dual2
-    case 0x09:
-		if (msg.getSize() < 5)
-			return HeadphonesEvent::MessageUnhandled;
-		if (_batteryDualPayloadType.has_value() && *_batteryDualPayloadType != msg[1])
-			return HeadphonesEvent::MessageUnhandled;
-		if (!validLevel(msg[2]) && !validLevel(msg[4]))
-			return HeadphonesEvent::MessageUnhandled;
-		_batteryDualPayloadType = msg[1];
-		if (validLevel(msg[2]))
-			statBatteryL.overwrite(decodeSonyBatteryPercentage(msg[2]));
-		if (validLevel(msg[4]))
-			statBatteryR.overwrite(decodeSonyBatteryPercentage(msg[4]));
-		batteryLayout = BatteryLayout::Dual;
+    case 0x00:
+        if (msg.getSize() != 4 || msg[3] > 1 || batteryLayout == BatteryLayout::Dual ||
+            (batteryLayout == BatteryLayout::Unknown && decodeSonyBatteryPercentage(msg[2]) < 0))
+            return HeadphonesEvent::MessageUnhandled;
+        statBatteryL.overwrite(decodeSonyBatteryPercentage(msg[2]));
+        statBatteryR.overwrite(-1);
+        statBatteryCase.overwrite(-1);
+        batteryLayout = BatteryLayout::Single;
         return HeadphonesEvent::BatteryLevelUpdate;
-    case 0x02: // V1 case battery
-    case 0x0a: // V2/V3 case battery
-		if (batteryLayout != BatteryLayout::Dual || !validLevel(msg[2]))
-			return HeadphonesEvent::MessageUnhandled;
-		if (_batteryCasePayloadType.has_value() && *_batteryCasePayloadType != msg[1])
-			return HeadphonesEvent::MessageUnhandled;
-		_batteryCasePayloadType = msg[1];
-		statBatteryCase.overwrite(decodeSonyBatteryPercentage(msg[2]));
+    case 0x01:
+    case 0x09: {
+        if (msg.getSize() != 6 || msg[3] > 1 || msg[5] > 1 || batteryLayout == BatteryLayout::Single)
+            return HeadphonesEvent::MessageUnhandled;
+        if (_batteryDualPayloadType.has_value() && *_batteryDualPayloadType != msg[1])
+            return HeadphonesEvent::MessageUnhandled;
+        // A zero earbud level means absent/unreported in dual-battery payloads.
+        const int left = msg[2] == 0 ? -1 : decodeSonyBatteryPercentage(msg[2]);
+        const int right = msg[4] == 0 ? -1 : decodeSonyBatteryPercentage(msg[4]);
+        if (batteryLayout == BatteryLayout::Unknown && left < 0 && right < 0)
+            return HeadphonesEvent::MessageUnhandled;
+        _batteryDualPayloadType = msg[1];
+        statBatteryL.overwrite(left);
+        statBatteryR.overwrite(right);
+        batteryLayout = BatteryLayout::Dual;
+        return HeadphonesEvent::BatteryLevelUpdate;
+    }
+    case 0x02:
+    case 0x0a:
+        if (msg.getSize() != 4 || msg[3] > 1 || batteryLayout == BatteryLayout::Single)
+            return HeadphonesEvent::MessageUnhandled;
+        if (!_batteryCasePayloadType.has_value() && decodeSonyBatteryPercentage(msg[2]) < 0)
+            return HeadphonesEvent::MessageUnhandled;
+        if (_batteryCasePayloadType.has_value() && *_batteryCasePayloadType != msg[1])
+            return HeadphonesEvent::MessageUnhandled;
+        _batteryCasePayloadType = msg[1];
+        statBatteryCase.overwrite(decodeSonyBatteryPercentage(msg[2]));
         return HeadphonesEvent::BatteryLevelUpdate;
     default:
         return HeadphonesEvent::MessageUnhandled;
@@ -671,6 +670,7 @@ HeadphonesEvent Headphones::_handleMessage(HeadphonesMessage const& msg)
         switch (command) {
         case COMMAND_TYPE::NCASM_PARAM_RET: case COMMAND_TYPE::NCASM_PARAM_NOTIFY: minimum = 7; break;
         case COMMAND_TYPE::BATTERY_LEVEL_RET:
+        case COMMAND_TYPE::BATTERY_LEVEL_NOTIFY:
         case COMMAND_TYPE::PLAYBACK_STATUS_RET: case COMMAND_TYPE::PLAYBACK_STATUS_NOTIFY:
         case COMMAND_TYPE::PLAYBACK_SND_PRESSURE_RET:
         case COMMAND_TYPE::VOICEGUIDANCE_PARAM_RET: case COMMAND_TYPE::VOICEGUIDANCE_PARAM_NOTIFY: minimum = 3; break;
@@ -696,6 +696,7 @@ HeadphonesEvent Headphones::_handleMessage(HeadphonesMessage const& msg)
             result = _handleNcAsmParam(msg);
             break;
         case COMMAND_TYPE::BATTERY_LEVEL_RET:
+        case COMMAND_TYPE::BATTERY_LEVEL_NOTIFY:
             result = _handleBatteryLevelRet(msg);
             break;
         case COMMAND_TYPE::PLAYBACK_STATUS_RET:

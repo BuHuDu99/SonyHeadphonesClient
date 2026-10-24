@@ -2,6 +2,7 @@
 #include "BluetoothWrapper.h"
 #include "Constants.h"
 #include "EqualizerPreview.h"
+#include "SonyBattery.h"
 
 #include <mutex>
 #include <iostream>
@@ -123,7 +124,7 @@ public:
 
 	// Battery levels 0 ~ 100
 	Property<int> statBatteryL{}, statBatteryR{}, statBatteryCase{};
-	enum class BatteryLayout { Unknown, Single, Dual };
+	using BatteryLayout = SonyBatteryLayout;
 	BatteryLayout batteryLayout = BatteryLayout::Unknown;
 
 	// Volume. 0 ~ 30

@@ -1178,24 +1178,11 @@ App::MenuBarState App::menuBarState() const
     state.equalizerPreset = _headphones->eqPreset.current;
     state.playing = _headphones->playPause.current;
 
-    const auto percent = [](int value) {
-        return value >= 0 ? std::to_string(std::clamp(value, 0, 100)) + "%" : "--";
-    };
-    if (_headphones->batteryLayout == Headphones::BatteryLayout::Single) {
-        state.statusBatteryText = percent(_headphones->statBatteryL.current);
-        state.batteryDescription = "Headphones: " + state.statusBatteryText;
-    }
-    else if (_headphones->batteryLayout == Headphones::BatteryLayout::Dual) {
-        const std::string left = percent(_headphones->statBatteryL.current);
-        const std::string right = percent(_headphones->statBatteryR.current);
-        state.statusBatteryText = "L" + left + " R" + right;
-        state.batteryDescription = "Left: " + left + "   Right: " + right;
-        if (_headphones->statBatteryCase.current >= 0)
-            state.batteryDescription += "   Case: " + percent(_headphones->statBatteryCase.current);
-    }
-    else {
-        state.batteryDescription = "Waiting for battery status";
-    }
+    const auto battery = formatSonyBattery(_headphones->batteryLayout,
+        _headphones->statBatteryL.current, _headphones->statBatteryR.current,
+        _headphones->statBatteryCase.current);
+    state.statusBatteryText = battery.compact;
+    state.batteryDescription = battery.description;
     const std::string mode = !state.soundControlAvailable ? "Chờ trạng thái" :
         (state.soundControlMode == SoundControlMode::NoiseCancelling ? "Chống ồn" :
          state.soundControlMode == SoundControlMode::AmbientSound ? "Xuyên âm" : "Tắt chống ồn");

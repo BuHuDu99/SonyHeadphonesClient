@@ -182,7 +182,9 @@ if (BUILD_TESTING)
     target_include_directories(EqualizerPreviewTests PRIVATE src contrib/tomlplusplus/include)
     add_test(NAME EqualizerPreviewTests COMMAND EqualizerPreviewTests)
 
-    add_executable(SonyBatteryTests tests/SonyBatteryTests.cpp)
+    add_executable(SonyBatteryTests tests/SonyBatteryTests.cpp
+        src/CommandSerializer.cpp src/BluetoothWrapper.cpp src/Headphones.cpp)
+    target_link_libraries(SonyBatteryTests PRIVATE Threads::Threads)
     target_include_directories(SonyBatteryTests PRIVATE src)
     add_test(NAME SonyBatteryTests COMMAND SonyBatteryTests)
     # These standalone tests use assert; keep checks active in Release builds too.

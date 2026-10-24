@@ -185,3 +185,24 @@ là các lớp kiểm tra bổ sung; chúng không chứng nhận thông số ha
   trên phần cứng. Đường cong demo bị giới hạn trong `SONY_UI_PREVIEW`, không gửi Bluetooth.
 - Giữ thuật ngữ gốc trong EQ; Flat là các giá trị bằng 0. Bỏ các câu trang trí và
   chú thích lặp khỏi giao diện, giữ hướng dẫn cần thiết về Apply/khôi phục.
+
+
+## Sửa hiển thị pin — Build 26
+
+- Bỏ phép nhân 10 cho byte pin 0–10: giao thức MDR trả phần trăm trực tiếp.
+  Đối chiếu [Gadgetbridge SonyProtocolImplV1.handleBattery](https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v1/SonyProtocolImplV1.java).
+- Xử lý cả response `0x23` và notification `0x25` của giao thức V2 hiện dùng;
+  kiểm tra đủ 4 byte cho single/case và 6 byte cho dual, gồm cờ sạc.
+- Single chỉ hiện phần trăm, không có L/R. Dual giữ hai giá trị độc lập L/R;
+  case hiện trong menu/tooltip khi được báo. Không lấy trung bình hai bên.
+- Byte 0 của từng earbud trong dual là absent/unreported: hiển thị `--` và xóa
+  giá trị cũ; single/case vẫn nhận 0%. Byte >100 hiển thị `--`, không ép thành 100%.
+- Cố định topology và biến thể sau phản hồi hợp lệ trong mỗi kết nối. Không để
+  phản hồi của các probe không hỗ trợ đổi single thành dual hoặc ngược lại.
+- Kiểm thử đi qua transport frame và `Headphones::poll`, gồm giá trị 1–10%,
+  cập nhật notification, hai tai lệch pin, mất một tai, case trước dual,
+  sentinel, phản hồi khác biến thể và payload thiếu/cờ sạc không hợp lệ.
+- Chưa có số đo pin đối chiếu trên phần cứng thật; kết quả phần mềm không xác nhận
+  độ chính xác cảm biến pin/firmware của mọi model Sony.
+- Kiểm chứng Build 26: CTest Debug và Release đều đạt 6/6; riêng battery parser/formatter
+  chạy qua ASan/UBSan không báo lỗi.
