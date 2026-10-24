@@ -36,6 +36,9 @@ def inspect(path):
         "THMSGV1T1SetEqEbbParam", "THMSGV1T1RetEqEbbCapability_EqCapability",
         "THMSGV2T1EqEbbRetCapabilityEq", "THMSGV2T1EqEbbSetParamEq",
         "HPCEqBandStepsStandard", "HPCEqBandSteps10band",
+        "HPCBatteryUtil", "HPCBatteryInformation", "HPCLRBatteryInformation",
+        "THMSGV2T1PowerRetStatusBatteryBase", "THMSGV2T1PowerRetStatusLeftRightBatteryBase",
+        "THMSGV2T1BatteryChargingStatus",
     ]
     with path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()

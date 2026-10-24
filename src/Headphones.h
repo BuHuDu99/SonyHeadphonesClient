@@ -222,6 +222,7 @@ public:
 
 private:
 	BluetoothWrapper &_conn;
+	std::optional<uint8_t> _batterySinglePayloadType;
 	std::optional<uint8_t> _batteryDualPayloadType;
 	std::optional<uint8_t> _batteryCasePayloadType;
 

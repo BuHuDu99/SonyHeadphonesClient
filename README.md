@@ -1,13 +1,14 @@
 # Sony Headphones Client
 
-## macOS 1.4.4 — Build 26
+## macOS 1.4.4 — Build 27
 
-[Tải bộ cài và mã nguồn Build 26](https://github.com/BuHuDu99/SonyHeadphonesClient/releases/tag/v1.4.4-build26).
+[Tải bộ cài và mã nguồn Build 27](https://github.com/BuHuDu99/SonyHeadphonesClient/releases/tag/v1.4.4-build27).
 Bản app dành cho **Apple Silicon, macOS 27.0 trở lên**. Mở DMG, kéo app vào
 Applications, tháo DMG rồi mở `/Applications/SonyHeadphonesClient.app`.
 
 - **Pin:** thiết bị một pin hiển thị một giá trị; tai nghe hai bên hiển thị L/R riêng.
-  Đọc đúng phần trăm, cập nhật qua thông báo Bluetooth; `--` khi chưa có giá trị.
+  Đối chiếu bộ kiểm tra/giải mã pin trong IPA Sony 13.2.0: giữ cả 0%, hỗ trợ
+  trạng thái sạc đầy và payload có threshold; `--` khi giá trị nằm ngoài 0–100.
 - **EQ Live preview:** chọn preset hoặc chỉnh thanh EQ để nghe thử. App đọc lại
   đường cong từ tai nghe để đồng bộ 5 dải và Clear Bass. **Apply** giữ EQ đang nghe;
   **Revert**, rời trang EQ, ẩn/minimize cửa sổ hoặc thoát app sẽ khôi phục EQ trước đó.
@@ -22,12 +23,15 @@ Applications, tháo DMG rồi mở `/Applications/SonyHeadphonesClient.app`.
 Giao diện giữ các nhãn **Equalizer, Preset, Custom, Clear Bass, Flat, Apply, Revert**.
 Các câu trang trí và hướng dẫn lặp đã được bỏ.
 
+[Bằng chứng đối chiếu pin từ IPA Sony](docs/sony-battery-ipa-audit.md):
+256/256 giá trị byte khớp các helper Sony chạy giả lập.
+
 Đã kiểm thử phần mềm **6/6** (Debug và Release), kiểm tra giao diện bằng chế độ xem thử và chạy các
 kiểm thử giao thức/giao dịch/EQ với ASan/UBSan. Chưa xác nhận trên phần cứng thật
 WH-1000XM5 firmware 2.5.1; xem [báo cáo giao thức](docs/protocol-safety-audit.md).
 App được ký ad-hoc, chưa notarize bằng Apple Developer.
 
-Mã nguồn trên nhánh `main` và tag `v1.4.4-build26`. Release có bộ cài DMG,
+Mã nguồn trên nhánh `main` và tag `v1.4.4-build27`. Release có bộ cài DMG,
 source archive kèm toàn bộ dependency đang dùng, thông tin build và SHA-256.
 Thư mục dự án giữ mã nguồn/Git; binary, bộ cài và tệp tạm không được commit.
 
@@ -59,7 +63,7 @@ Check the [Device Support](docs/device-support/) folder for more details on conf
 
 ## Downloads
 
-Bản macOS Apple Silicon Build 26 có tại [Releases](https://github.com/BuHuDu99/SonyHeadphonesClient/releases/tag/v1.4.4-build26). Mã nguồn Windows/Linux được cung cấp để tự biên dịch; chưa có tệp phát hành đã kiểm tra cho hai nền tảng này.
+Bản macOS Apple Silicon Build 27 có tại [Releases](https://github.com/BuHuDu99/SonyHeadphonesClient/releases/tag/v1.4.4-build27). Mã nguồn Windows/Linux được cung cấp để tự biên dịch; chưa có tệp phát hành đã kiểm tra cho hai nền tảng này.
 
 
 ## For Developers
@@ -132,7 +136,7 @@ ctest --test-dir build --output-on-failure
 codesign --force --deep --sign - build/SonyHeadphonesClient.app
 ```
 
-The source archive attached to Build 26 already includes the submodule sources;
+The source archive attached to Build 27 already includes the submodule sources;
 when cloning Git, use `--recurse-submodules` as shown above.
 
 Pair the headphones once in **System Settings → Bluetooth** before opening the client. The client can then open the Sony control channel itself, remember the last successful device, and reconnect when that paired device becomes available.

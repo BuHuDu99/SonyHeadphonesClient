@@ -187,7 +187,7 @@ là các lớp kiểm tra bổ sung; chúng không chứng nhận thông số ha
   chú thích lặp khỏi giao diện, giữ hướng dẫn cần thiết về Apply/khôi phục.
 
 
-## Sửa hiển thị pin — Build 26
+## Sửa hiển thị pin — Build 26 (được hiệu chỉnh tiếp ở Build 27)
 
 - Bỏ phép nhân 10 cho byte pin 0–10: giao thức MDR trả phần trăm trực tiếp.
   Đối chiếu [Gadgetbridge SonyProtocolImplV1.handleBattery](https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v1/SonyProtocolImplV1.java).
@@ -206,3 +206,14 @@ là các lớp kiểm tra bổ sung; chúng không chứng nhận thông số ha
   độ chính xác cảm biến pin/firmware của mọi model Sony.
 - Kiểm chứng Build 26: CTest Debug và Release đều đạt 6/6; riêng battery parser/formatter
   chạy qua ASan/UBSan không báo lỗi.
+
+
+## Đối chiếu trực tiếp pin từ IPA — Build 27
+
+Xem [báo cáo pin IPA](sony-battery-ipa-audit.md) và
+[bằng chứng tái lập](sony-battery-ipa-evidence.json). Đã đọc thân hàm, chạy các
+leaf helper ARM64 bằng Unicorn và so sánh toàn bộ 256 giá trị với decoder desktop.
+Kết quả xác nhận thang 0–100; sửa Build 26 để giữ 0% cho từng tai, chấp nhận
+charging UNKNOWN/CHARGED, sửa độ dài payload threshold và thêm type single 0x08.
+Các phát biểu Build 26 về 0 của earbud là absent và chiều dài 6/4 cho mọi biến thể
+đã được thay thế bởi bằng chứng Sony này. Chưa xác nhận trên tai nghe thật.

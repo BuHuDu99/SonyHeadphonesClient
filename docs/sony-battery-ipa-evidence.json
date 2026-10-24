@@ -1,0 +1,89 @@
+{
+  "ipa_sha256": "163ec86d677bc1194c6028e016968be9415302b06da06284c6037f3d415f3297",
+  "version": "13.2.0",
+  "build": "510.9",
+  "method": "ARM64 leaf helpers executed in Unicorn; other findings from static disassembly",
+  "routines": {
+    "unsigned_byte": {
+      "address": "0x1012ca55c",
+      "size": 28,
+      "sha256": "d17106a6775ab4872138f3c6d308be70cd1c6d0bffbec8252d10d6515cf7344a"
+    },
+    "valid_level": {
+      "address": "0x1018bd208",
+      "size": 64,
+      "sha256": "57e639cecbfe0f0507b9adaf33436e7848a4d46b5db7762419f3b6f9d138b08a"
+    },
+    "single_level_index": {
+      "address": "0x101416a38",
+      "size": 24,
+      "sha256": "047e75b8e8c9a11a4393f165d55425e9d8f94947b4fb10ea95e8cb12fc8fd2ae"
+    },
+    "single_charging_index": {
+      "address": "0x101416a50",
+      "size": 24,
+      "sha256": "e710be56c58d2cdca8e989f1aac0d405d8f3adab7fa29a01603ef316eb7e2ccd"
+    },
+    "left_level_index": {
+      "address": "0x101418224",
+      "size": 24,
+      "sha256": "047e75b8e8c9a11a4393f165d55425e9d8f94947b4fb10ea95e8cb12fc8fd2ae"
+    },
+    "left_charging_index": {
+      "address": "0x10141823c",
+      "size": 24,
+      "sha256": "e710be56c58d2cdca8e989f1aac0d405d8f3adab7fa29a01603ef316eb7e2ccd"
+    },
+    "right_level_index": {
+      "address": "0x101418254",
+      "size": 24,
+      "sha256": "2eca6469829a0b4f45ea442215bbb24c9ab184e53f98253571f55620984eed2c"
+    },
+    "right_charging_index": {
+      "address": "0x10141826c",
+      "size": 24,
+      "sha256": "2cb4ae1ad7765fa32286eee7c1f9db1b68e18e0625cb37761ad0740f770c4372"
+    },
+    "single_or_case_threshold_index": {
+      "address": "0x10141f98c",
+      "size": 24,
+      "sha256": "2eca6469829a0b4f45ea442215bbb24c9ab184e53f98253571f55620984eed2c"
+    }
+  },
+  "field_indices": {
+    "single_level_index": 2,
+    "single_charging_index": 3,
+    "left_level_index": 2,
+    "left_charging_index": 3,
+    "right_level_index": 4,
+    "right_charging_index": 5,
+    "single_or_case_threshold_index": 4
+  },
+  "sony_valid_level_range": [
+    0,
+    100
+  ],
+  "zero_is_valid": true,
+  "static_charging_codes": {
+    "NOT_CHARGING": 0,
+    "CHARGING": 1,
+    "UNKNOWN": 2,
+    "CHARGED": 3
+  },
+  "static_battery_payload_sizes": {
+    "0x0": 4,
+    "0x1": 6,
+    "0x2": 4,
+    "0x8": 5,
+    "0x9": 8,
+    "0xa": 5
+  },
+  "static_left_right_threshold_indices": [
+    6,
+    7
+  ],
+  "byte_values_exercised": 256,
+  "desktop_values_matched": 256,
+  "desktop_payload_sizes_matched": 256,
+  "limitations": "Does not execute the complete Sony app, validate device capabilities or compare a physical battery."
+}

@@ -292,22 +292,24 @@ void Headphones::requestSync()
 	// Some values are taken from:
 	// https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v1/PayloadTypeV1.java
 
-	/* Battery
-	 * Probe the newer payload IDs first. A valid response locks the parser to
-	 * that variant, so unsupported probes and sentinel values can no longer
-	 * make the UI jump between over-ear and true-wireless layouts.
-	 */
+	// Battery variants and threshold fields: docs/sony-battery-ipa-audit.md.
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x09 // V2 DUAL
+		0x09 // Left/right battery with two trailing thresholds
 	}, DATA_TYPE::DATA_MDR);
 	waitForAck();
 
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x01 // V1 DUAL / V2 DUAL2
+		0x01 // Left/right battery
 	}, DATA_TYPE::DATA_MDR);
 	waitForAck();
+
+    _conn.sendCommand({
+        static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
+        0x08 // Single battery with trailing threshold
+    }, DATA_TYPE::DATA_MDR);
+    waitForAck();
 
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
@@ -317,13 +319,13 @@ void Headphones::requestSync()
 
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x0a // V2/V3 CASE
+		0x0a // Case battery with trailing threshold
 	}, DATA_TYPE::DATA_MDR);
 	waitForAck();
 
 	_conn.sendCommand({
 		static_cast<uint8_t>(COMMAND_TYPE::BATTERY_LEVEL_GET),
-		0x02 // V1 CASE
+		0x02 // Case battery
 	}, DATA_TYPE::DATA_MDR);
 	waitForAck();
 
@@ -395,43 +397,37 @@ HeadphonesEvent Headphones::_handleNcAsmParam(const HeadphonesMessage& msg) {
 }
 
 HeadphonesEvent Headphones::_handleBatteryLevelRet(const HeadphonesMessage& msg) {
-    if (msg.getSize() < 4)
+    if (msg.getSize() < 2 || msg.getSize() != sonyBatteryPayloadSize(msg[1]))
         return HeadphonesEvent::MessageUnhandled;
 
+    // Charging status is an enum (including UNKNOWN and CHARGED), not a boolean.
+    // Level validity is independent of charging state; see the IPA audit.
     switch (msg[1]) {
     case 0x00:
-        if (msg.getSize() != 4 || msg[3] > 1 || batteryLayout == BatteryLayout::Dual ||
-            (batteryLayout == BatteryLayout::Unknown && decodeSonyBatteryPercentage(msg[2]) < 0))
+    case 0x08:
+        if (batteryLayout == BatteryLayout::Dual ||
+            (_batterySinglePayloadType && *_batterySinglePayloadType != msg[1]))
             return HeadphonesEvent::MessageUnhandled;
+        _batterySinglePayloadType = msg[1];
         statBatteryL.overwrite(decodeSonyBatteryPercentage(msg[2]));
         statBatteryR.overwrite(-1);
         statBatteryCase.overwrite(-1);
         batteryLayout = BatteryLayout::Single;
         return HeadphonesEvent::BatteryLevelUpdate;
     case 0x01:
-    case 0x09: {
-        if (msg.getSize() != 6 || msg[3] > 1 || msg[5] > 1 || batteryLayout == BatteryLayout::Single)
-            return HeadphonesEvent::MessageUnhandled;
-        if (_batteryDualPayloadType.has_value() && *_batteryDualPayloadType != msg[1])
-            return HeadphonesEvent::MessageUnhandled;
-        // A zero earbud level means absent/unreported in dual-battery payloads.
-        const int left = msg[2] == 0 ? -1 : decodeSonyBatteryPercentage(msg[2]);
-        const int right = msg[4] == 0 ? -1 : decodeSonyBatteryPercentage(msg[4]);
-        if (batteryLayout == BatteryLayout::Unknown && left < 0 && right < 0)
+    case 0x09:
+        if (batteryLayout == BatteryLayout::Single ||
+            (_batteryDualPayloadType && *_batteryDualPayloadType != msg[1]))
             return HeadphonesEvent::MessageUnhandled;
         _batteryDualPayloadType = msg[1];
-        statBatteryL.overwrite(left);
-        statBatteryR.overwrite(right);
+        statBatteryL.overwrite(decodeSonyBatteryPercentage(msg[2]));
+        statBatteryR.overwrite(decodeSonyBatteryPercentage(msg[4]));
         batteryLayout = BatteryLayout::Dual;
         return HeadphonesEvent::BatteryLevelUpdate;
-    }
     case 0x02:
     case 0x0a:
-        if (msg.getSize() != 4 || msg[3] > 1 || batteryLayout == BatteryLayout::Single)
-            return HeadphonesEvent::MessageUnhandled;
-        if (!_batteryCasePayloadType.has_value() && decodeSonyBatteryPercentage(msg[2]) < 0)
-            return HeadphonesEvent::MessageUnhandled;
-        if (_batteryCasePayloadType.has_value() && *_batteryCasePayloadType != msg[1])
+        if (batteryLayout == BatteryLayout::Single ||
+            (_batteryCasePayloadType && *_batteryCasePayloadType != msg[1]))
             return HeadphonesEvent::MessageUnhandled;
         _batteryCasePayloadType = msg[1];
         statBatteryCase.overwrite(decodeSonyBatteryPercentage(msg[2]));
