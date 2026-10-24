@@ -538,3 +538,6 @@ cmake-build*/
 /output/
 *.app/
 imgui.ini
+
+# Proprietary app references used only for local protocol audits
+*.ipa

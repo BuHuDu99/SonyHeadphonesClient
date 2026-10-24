@@ -9,6 +9,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <optional>
+#include <functional>
+#include <chrono>
 
 //Thread-safety: This class is thread-safe.
 class BluetoothWrapper
@@ -25,6 +27,10 @@ public:
 	int sendCommand(CommandSerializer::CommandMessage const& cmd);
 	int sendCommand(const Buffer& command, DATA_TYPE dataType = DATA_TYPE::DATA_MDR);
 	int sendAck(int seqNumber);
+	bool waitForAck(std::chrono::milliseconds timeout, bool required = false);
+	Buffer writeAndConfirm(const Buffer& command, const Buffer& query, DATA_TYPE type,
+		const std::function<bool(const Buffer&)>& matches,
+		std::chrono::milliseconds timeout = std::chrono::milliseconds(2000));
 
 	bool isConnected() noexcept;
 	//Try to connect to the headphones
@@ -40,5 +46,11 @@ public:
 private:
 
 	std::mutex _connectorMtx;
+	std::mutex _stateMtx;
+	std::condition_variable _stateCV;
 	unsigned int _seqNumber = 0;
+	bool _awaitingAck = false, _ackReceived = false;
+	std::optional<Buffer> _response;
+	Buffer _responseQuery;
+	DATA_TYPE _responseType = DATA_TYPE::UNKNOWN;
 };

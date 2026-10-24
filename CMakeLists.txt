@@ -22,6 +22,7 @@ target_sources(SonyHeadphonesClient
     PRIVATE src/BluetoothWrapper.cpp
     src/CommandSerializer.cpp
     src/App.cpp
+    src/AppConfig.cpp
     src/Headphones.cpp
     contrib/tomlplusplus/src/toml.cpp
 )
@@ -157,7 +158,40 @@ if (BUILD_TESTING)
     target_include_directories(EqualizerSerializerTests PRIVATE src)
     add_test(NAME EqualizerSerializerTests COMMAND EqualizerSerializerTests)
 
+    add_executable(ProtocolSafetyTests
+        tests/ProtocolSafetyTests.cpp
+        src/CommandSerializer.cpp
+        src/BluetoothWrapper.cpp
+        src/Headphones.cpp
+    )
+    target_include_directories(ProtocolSafetyTests PRIVATE src)
+    target_link_libraries(ProtocolSafetyTests PRIVATE Threads::Threads)
+    add_test(NAME ProtocolSafetyTests COMMAND ProtocolSafetyTests)
+
+    add_executable(BluetoothTransactionTests
+        tests/BluetoothTransactionTests.cpp src/CommandSerializer.cpp src/BluetoothWrapper.cpp src/Headphones.cpp)
+    target_include_directories(BluetoothTransactionTests PRIVATE src)
+    target_link_libraries(BluetoothTransactionTests PRIVATE Threads::Threads)
+    add_test(NAME BluetoothTransactionTests COMMAND BluetoothTransactionTests)
+
+    add_executable(MenuBarDisplayTests tests/MenuBarDisplayTests.cpp src/AppConfig.cpp contrib/tomlplusplus/src/toml.cpp)
+    target_include_directories(MenuBarDisplayTests PRIVATE src contrib/tomlplusplus/include)
+    add_test(NAME MenuBarDisplayTests COMMAND MenuBarDisplayTests)
+
+    add_executable(EqualizerPreviewTests tests/EqualizerPreviewTests.cpp src/AppConfig.cpp contrib/tomlplusplus/src/toml.cpp)
+    target_include_directories(EqualizerPreviewTests PRIVATE src contrib/tomlplusplus/include)
+    add_test(NAME EqualizerPreviewTests COMMAND EqualizerPreviewTests)
+
     add_executable(SonyBatteryTests tests/SonyBatteryTests.cpp)
     target_include_directories(SonyBatteryTests PRIVATE src)
     add_test(NAME SonyBatteryTests COMMAND SonyBatteryTests)
+    # These standalone tests use assert; keep checks active in Release builds too.
+    foreach(test_target EqualizerSerializerTests ProtocolSafetyTests BluetoothTransactionTests MenuBarDisplayTests EqualizerPreviewTests SonyBatteryTests)
+        if (MSVC)
+            target_compile_options(${test_target} PRIVATE /UNDEBUG)
+        else()
+            target_compile_options(${test_target} PRIVATE -UNDEBUG)
+        endif()
+    endforeach()
+    set_tests_properties(ProtocolSafetyTests BluetoothTransactionTests EqualizerPreviewTests PROPERTIES TIMEOUT 30)
 endif()

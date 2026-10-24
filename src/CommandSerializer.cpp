@@ -1,6 +1,7 @@
 #include "CommandSerializer.h"
 
 #include <algorithm>
+#include <cctype>
 
 constexpr uint8_t ESCAPED_BYTE_SENTRY = 0x3D;
 constexpr uint8_t ESCAPED_60 = 44; // 0x3C -> 0x3D 0x2C
@@ -10,6 +11,17 @@ constexpr int MAX_STEPS_WH_1000_XM3 = 19;
 
 namespace CommandSerializer
 {
+ namespace {
+ void requireRange(int value, int minimum, int maximum) {
+  if (value < minimum || value > maximum)
+   throw std::invalid_argument("Sony command parameter out of range");
+ }
+ void requireEqPayload(uint8_t type) {
+  if (type != 0x00 && type != 0x01)
+   throw std::invalid_argument("Unsupported Sony EQ payload type");
+ }
+ }
+
 	Buffer _escapeSpecials(const Buffer& src)
 	{
 		Buffer ret;
@@ -103,6 +115,7 @@ namespace CommandSerializer
 
 	Buffer packageDataForBt(const Buffer& src, DATA_TYPE dataType, unsigned int seqNumber)
 	{
+		if (seqNumber > 1) throw std::invalid_argument("Invalid Bluetooth sequence number");
 		//Reserve at least the size for the size, start&end markers, and the source
 		Buffer toEscape;
 		toEscape.reserve(src.size() + 2 + sizeof(int));
@@ -135,9 +148,13 @@ namespace CommandSerializer
 		return ret;
 	}
 
-	Buffer serializeNcAndAsmSetting(NC_ASM_EFFECT ncAsmEffect, NC_ASM_SETTING_TYPE ncAsmSettingType, ASM_ID voicePassthrough, char asmLevel)
+	Buffer serializeNcAndAsmSetting(NC_ASM_EFFECT ncAsmEffect, NC_ASM_SETTING_TYPE ncAsmSettingType, ASM_ID voicePassthrough, int asmLevel)
 	{
-		// 0x68 | 0x17 | [Not Dragging ASM Slider?] | [NC & ASM On?] | [NC:0 ASM:1] | [Voice Passthrough?] | [ASM Level]
+		requireRange(static_cast<int>(ncAsmEffect), 0, 1);
+        requireRange(static_cast<int>(ncAsmSettingType), 0, 1);
+        requireRange(static_cast<int>(voicePassthrough), 0, 1);
+        requireRange(asmLevel, 1, 20);
+        // 0x68 | 0x17 | [Not Dragging ASM Slider?] | [NC & ASM On?] | [NC:0 ASM:1] | [Voice Passthrough?] | [ASM Level]
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::NCASM_PARAM_SET)); // 0x68
 		ret.push_back(0x17);
@@ -149,7 +166,8 @@ namespace CommandSerializer
 		return ret;
 	}
 
-	Buffer serializeVoiceGuidanceSetting(char volume) {
+	Buffer serializeVoiceGuidanceSetting(int volume) {
+        requireRange(volume, -2, 2);
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::VOICEGUIDANCE_PARAM_SET));
 		ret.push_back(0x20);
@@ -157,8 +175,9 @@ namespace CommandSerializer
 		ret.push_back(0x00);
 		return ret;
 	}
-	Buffer serializeVolumeSetting(char volume)
+	Buffer serializeVolumeSetting(int volume)
 	{
+        requireRange(volume, 0, 30);
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::PLAYBACK_STATUS_SET));
 		ret.push_back(0x20);
@@ -166,7 +185,15 @@ namespace CommandSerializer
 		return ret;
 	}
 	Buffer serializeMultipointSwitch(const char* macString)
-	{
+    {
+        if (!macString) throw std::invalid_argument("Missing Bluetooth address");
+        const std::string address(macString);
+        if (address.size() != 17) throw std::invalid_argument("Invalid Bluetooth address");
+        for (size_t i = 0; i < address.size(); ++i) {
+            const unsigned char ch = address[i];
+            if (i % 3 == 2 ? ch != ':' : !std::isxdigit(ch))
+                throw std::invalid_argument("Invalid Bluetooth address");
+        }
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::MULTIPOINT_DEVICE_SET));
 		ret.push_back(0x01);
@@ -174,7 +201,10 @@ namespace CommandSerializer
 		return ret;
 	}
 	Buffer serializePlayControl(PLAYBACK_CONTROL control)
-	{
+    {
+        if (control != PLAYBACK_CONTROL::PLAY && control != PLAYBACK_CONTROL::PAUSE &&
+            control != PLAYBACK_CONTROL::NEXT && control != PLAYBACK_CONTROL::PREV)
+            throw std::invalid_argument("Unsupported playback control");
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::PLAYBACK_STATUS_CONTROL_SET));
 		ret.push_back(0x01);
@@ -204,8 +234,10 @@ namespace CommandSerializer
 	}
 
 	// from https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v3/SonyProtocolImplV3.java
-	Buffer serializeSpeakToChatConfig(char sensitivity, char timeout)
+	Buffer serializeSpeakToChatConfig(int sensitivity, int timeout)
 	{
+        requireRange(sensitivity, 0, 2);
+        requireRange(timeout, 0, 3);
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::SPEAK_TO_CHAT_SET));
 		ret.push_back(0x0c);
@@ -214,15 +246,6 @@ namespace CommandSerializer
 		return ret;
 	}
 
-	Buffer serializeMpToggle2(bool enabled)
-	{
-		Buffer ret;
-		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::MULTIPOINT_ENABLE_SET_2));
-		ret.push_back(0x00);
-		ret.push_back(0x07);
-		ret.push_back(0x01);
-		return ret;
-	}
 
 	// from https://github.com/Freeyourgadget/Gadgetbridge/blob/master/app/src/main/java/nodomain/freeyourgadget/gadgetbridge/service/devices/sony/headphones/protocol/impl/v3/SonyProtocolImplV3.java
 	Buffer serializeSpeakToChatEnabled(bool enabled)
@@ -239,6 +262,7 @@ namespace CommandSerializer
 	//      https://github.com/Plutoberth/SonyHeadphonesClient/commit/66d8e52aad4ffd08aa78e811a23f67a5bad07d9a
 	Buffer serializeEqualizerCustom(uint8_t payloadType, int bass, std::vector<int> const& bands)
 	{
+		requireEqPayload(payloadType);
 		if (bands.size() != 5)
 			throw std::invalid_argument("Sony equalizer requires exactly five bands");
 
@@ -253,8 +277,12 @@ namespace CommandSerializer
 			ret.push_back(std::clamp(band, -10, 10) + 10);
 		return ret;
 	}
-	Buffer serializeEqualizerPreset(uint8_t payloadType, uint8_t preset)
-	{
+	Buffer serializeEqualizerPreset(uint8_t payloadType, int preset)
+    {
+        requireEqPayload(payloadType);
+        if (!(preset >= 0 && preset <= 7) && !(preset >= 16 && preset <= 23) &&
+            !(preset >= 0xa0 && preset <= 0xa5) && preset != 0xff)
+            throw std::invalid_argument("Unsupported Sony EQ preset");
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::EQUALIZER_SET));
 		ret.push_back(payloadType);
@@ -263,7 +291,12 @@ namespace CommandSerializer
 		return ret;
 	}
 	Buffer serializeTouchSensorAssignment(TOUCH_SENSOR_FUNCTION funcL, TOUCH_SENSOR_FUNCTION funcR)
-	{
+    {
+        for (auto function : {funcL, funcR})
+            if (function != TOUCH_SENSOR_FUNCTION::PLAYBACK_CONTROL &&
+                function != TOUCH_SENSOR_FUNCTION::AMBIENT_NC_CONTROL &&
+                function != TOUCH_SENSOR_FUNCTION::NOT_ASSIGNED)
+                throw std::invalid_argument("Unsupported touch sensor function");
 		Buffer ret;
 		ret.push_back(static_cast<uint8_t>(COMMAND_TYPE::AUTOMATIC_POWER_OFF_BUTTON_MODE_SET));
 		ret.push_back(0x03);

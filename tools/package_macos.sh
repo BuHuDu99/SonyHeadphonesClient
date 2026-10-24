@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Package an already-built application; no credentials or paid services needed.
 app_path="${1:-output/SonyHeadphonesClient.app}"
-dmg_path="${2:-output/SonyHeadphonesClient-macOS-arm64-Build23.dmg}"
+dmg_path="${2:-output/SonyHeadphonesClient-macOS-arm64-Build25.dmg}"
 [[ -d "$app_path/Contents/MacOS" ]] || { echo "App bundle not found: $app_path" >&2; exit 1; }
 codesign --verify --deep --strict "$app_path"
 staging_path="$(mktemp -d "${TMPDIR:-/tmp}/sound-connect-dmg.XXXXXX")"
@@ -12,12 +12,14 @@ trap 'rm -rf "$staging_path"' EXIT
 ditto "$app_path" "$staging_path/SonyHeadphonesClient.app"
 ln -s /Applications "$staging_path/Applications"
 cat > "$staging_path/Huong-dan-cai-dat.txt" <<'GUIDE'
-SOUND CONNECT — BUILD 23
+SOUND CONNECT — BUILD 25
 
 1. Kéo SonyHeadphonesClient.app vào Applications.
 2. Tháo (Eject) ổ đĩa Sound Connect.
 3. Mở ứng dụng trong Applications.
 4. Ghép đôi tai nghe Sony trong Cài đặt Bluetooth của macOS, rồi kết nối trong app.
+5. EQ có Live preview: Apply để giữ, Revert hoặc rời trang để trở về EQ trước đó.
+6. Tùy chỉnh menubar trong Cài đặt → Nội dung trên menubar.
 
 Ứng dụng chạy độc lập, không cần thư mục mã nguồn, Python, CMake hoặc khóa API.
 Bản này dành cho Mac Apple Silicon (arm64), macOS 27.0 trở lên.

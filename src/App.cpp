@@ -154,19 +154,166 @@ bool BeginRaisedCard(const char* id, ImVec2 size)
 }
 }
 
+namespace {
+bool equalizerReady(const Headphones& headphones) {
+    return headphones.eqPreset.reported && (headphones.eqConfig.reported || headphones.eqPreset.current == 0);
+}
+EqualizerState currentEqualizer(const Headphones& headphones) {
+    if (headphones.eqPreset.current == 0 && !headphones.eqConfig.reported)
+        return {0, 0, {0, 0, 0, 0, 0}, headphones.eqPayloadType};
+    return {headphones.eqPreset.current, headphones.eqConfig.current.bassLevel,
+        headphones.eqConfig.current.bands, headphones.eqPayloadType};
+}
+}
+
+void App::_syncEqDraft()
+{
+    const auto& state = _eqSession.draft();
+    _eqDraft = Headphones::EqualizerConfig(state.bass, state.bands);
+    _eqDraftPreset = state.preset;
+    _eqDraftInitialized = true;
+}
+
+bool App::_ensureEqSession()
+{
+    if (_eqSession.active()) return true;
+    if (!_headphones || !equalizerReady(*_headphones) ||
+        (_headphones->eqPayloadType != 0 && _headphones->eqPayloadType != 1)) {
+        _eqStatusMessage = "Waiting for the headset's EQ preset and curve...";
+        return false;
+    }
+    if (!_preview && _config.equalizerRecovery) {
+        _eqStatusMessage = "Restore the previous EQ preview on its original headset before editing.";
+        return false;
+    }
+    const auto original = currentEqualizer(*_headphones);
+    if (!original.restorable()) {
+        _eqStatusMessage = "Select a supported EQ preset in Sony Sound Connect first.";
+        return false;
+    }
+    _eqSession.begin(original);
+    _syncEqDraft();
+    return true;
+}
+
+void App::_editEqPreview(bool writeCurve)
+{
+    if (!_ensureEqSession()) return;
+    if (_eqDraftPreset == 0xa0 && _headphones->eqPayloadType == 1) _eqDraftPreset = 0xff;
+    _eqSession.edit({_eqDraftPreset, _eqDraft.bassLevel, _eqDraft.bands, _headphones->eqPayloadType},
+        writeCurve, ImGui::GetTime());
+    _eqStatusMessage = "Updating preview...";
+}
+
+void App::cancelEqualizerPreview()
+{
+    if (!_eqSession.active()) return;
+    const bool changed = _eqSession.needsRestore();
+    _eqSession.restore(true);
+    _syncEqDraft();
+    if (changed) _eqStatusMessage = "Restoring the previous EQ...";
+}
+
+bool App::prepareForExit()
+{
+    _exitRequested = true;
+    cancelEqualizerPreview();
+    return !_headphones || (!_eqSending && !_eqSession.needsRestore());
+}
+
+void App::_clearEqRecovery()
+{
+    if (_preview || !_config.equalizerRecovery || _config.equalizerRecovery->deviceMac != _connectedDevice.mac)
+        return;
+    const auto previous = _config.equalizerRecovery;
+    _config.equalizerRecovery.reset();
+    if (!_config.persist()) {
+        _config.equalizerRecovery = previous;
+        throw RecoverableException("Could not save the confirmed EQ state. Preview recovery is still pending.", true);
+    }
+}
+
+bool App::_tickEqPreview()
+{
+    if (!_headphones) return false;
+    if (!_preview && _config.equalizerRecovery && !_eqSession.active() &&
+        _config.equalizerRecovery->deviceMac == _connectedDevice.mac &&
+        equalizerReady(*_headphones)) {
+        if (!_config.equalizerRecovery->original.restorable())
+            throw RecoverableException("The saved EQ preset cannot be safely restored.", true);
+        _eqSession.recover(_config.equalizerRecovery->original, currentEqualizer(*_headphones));
+        _syncEqDraft();
+        _eqStatusMessage = "Restoring the previous EQ preview...";
+    }
+    if (_eqSession.settled()) _clearEqRecovery();
+    if (_disconnectAfterEqRestore && !_eqSession.needsRestore()) {
+        _headphones.reset();
+        _eqSession = EqualizerPreview{};
+        _eqDraftInitialized = false;
+        _preview = false;
+        _autoReconnectPaused = true;
+        _disconnectAfterEqRestore = false;
+        return true;
+    }
+    const auto action = _eqSession.next(ImGui::GetTime());
+    if (!action) return false;
+    if (_preview) {
+        auto observed = action->target;
+        // Demonstration curves are confined to UI preview mode; never sent over Bluetooth.
+        if (!action->writeCurve && observed.preset != 0xa0 && observed.preset != 0xff) {
+            observed.bass = 0;
+            observed.bands = {0, 0, 0, 0, 0};
+            if (observed.preset == 0x10) observed.bands = {0, 1, 2, 4, 6};
+            if (observed.preset == 0x16) { observed.bass = 5; observed.bands = {4, 2, 0, 0, 0}; }
+        }
+        _headphones->eqPreset.overwrite(observed.preset);
+        _headphones->eqConfig.overwrite(Headphones::EqualizerConfig(observed.bass, observed.bands));
+        _eqSession.confirmed(observed);
+        _syncEqDraft();
+        _eqStatusMessage = action->restoring ? "Restored." : "";
+        return true;
+    }
+    // Persist the original state before the very first preview write, including across crashes.
+    if (!_config.equalizerRecovery) {
+        _config.equalizerRecovery = AppConfig::EqualizerRecovery{_connectedDevice.mac, _eqSession.baseline()};
+        if (!_config.persist())
+            throw RecoverableException("Could not save the original EQ. No preview command was sent.", true);
+    }
+    auto change = _headphones->prepareEqualizerChange(action->target, action->writeCurve);
+    _eqSending = true;
+    _eqStatusMessage = action->restoring ? "Restoring the previous EQ..." : "Updating live preview...";
+    _eqReadback = std::make_shared<std::optional<EqualizerState>>();
+    _headphones->_sendCommandFuture.setFromAsync([target = _headphones.get(), change = std::move(change), result = _eqReadback] {
+        *result = target->applyEqualizerChange(change);
+    });
+    return true;
+}
+
 bool App::OnUpdate()
 {
     if (_preview) {
-        _requestPlaybackControl=PLAYBACK_CONTROL::NONE;
-        if(_headphones && _headphones->eqConfig.isPending()){
-            _headphones->eqConfig.fulfill(); _headphones->eqPreset.overwrite(0xa0);
-            _eqStatusMessage="Đã áp dụng trong chế độ xem thử.";
+        if (_headphones) {
+            if (_requestPlaybackControl != PLAYBACK_CONTROL::NONE)
+                _headphones->playPause.overwrite(_requestPlaybackControl == PLAYBACK_CONTROL::PLAY);
+            _headphones->asmEnabled.fulfill();
+            _headphones->asmLevel.fulfill();
+            _headphones->asmFoucsOnVoice.fulfill();
+            _headphones->volume.fulfill();
+            _headphones->stcEnabled.fulfill();
+            _headphones->stcLevel.fulfill();
+            _headphones->stcTime.fulfill();
         }
-        if(_headphones && !_headphones->eqPreset.isFulfilled()) _headphones->eqPreset.fulfill();
+        _requestPlaybackControl=PLAYBACK_CONTROL::NONE;
+        if (_eqSession.active() && (_activePage != Page::Equalizer || _showSettings || _exitRequested || _disconnectAfterEqRestore))
+            cancelEqualizerPreview();
+        _tickEqPreview();
         return true;
     }
     _finishPendingConnection();
     bool shouldUpdate = true;
+    try {
+    if (_eqSession.active() && (_activePage != Page::Equalizer || _showSettings ||
+        _exitRequested || _disconnectAfterEqRestore || _requestShutdown)) cancelEqualizerPreview();
     if (_headphones)
     {
         // Polling & state updates are only done on the main thread
@@ -177,9 +324,12 @@ bool App::OnUpdate()
         } catch (RecoverableException& exc) {
             _logs.push_back(exc.what());
             if (_headphones && exc.shouldDisconnect) {
+                if (_headphones->_sendCommandFuture.valid()) _autoReconnectPaused = true;
                 _headphones.reset();
                 _requestShutdown = false;
-                _connectionError = _autoReconnectPaused ? "" : exc.what();
+                _connectionError = exc.what();
+                if (_config.equalizerRecovery)
+                    _connectionError += " EQ restore pending: reconnect the same headset.";
                 _nextAutoConnectAttemptTime = ImGui::GetTime() + 5.0;
             }
             else
@@ -210,7 +360,7 @@ bool App::OnUpdate()
             _logs.push_back("Now Playing: " + _headphones->playback.title);
             break;
         case HeadphonesEvent::EqualizerParamUpdate:
-            _eqDraftInitialized = false;
+            if (!_eqSession.active()) _eqDraftInitialized = false;
             break;
         default:
             // Other typed state events already update their backing property in
@@ -226,37 +376,55 @@ bool App::OnUpdate()
             _requestKind = RequestKind::None;
         }
 
-        if (_headphones->_sendCommandFuture.valid() && _headphones->_sendCommandFuture.ready())
+        if (_headphones->_sendCommandFuture.valid() && _headphones->_sendCommandFuture.ready()) {
             _headphones->_sendCommandFuture.get();
+            if (_eqSending) {
+                _eqSending = false;
+                if (!_eqReadback || !_eqReadback->has_value())
+                    throw RecoverableException("The headset did not report the preset curve. Preview was not confirmed.", true);
+                const auto observed = **_eqReadback;
+                _headphones->eqPreset.overwrite(observed.preset);
+                _headphones->eqConfig.overwrite(Headphones::EqualizerConfig(observed.bass, observed.bands));
+                const bool restoring = _eqSession.restoring();
+                _eqSession.confirmed(observed);
+                _eqReadback.reset();
+                _syncEqDraft();
+                if (_eqSession.settled()) _clearEqRecovery();
+                _eqStatusMessage = restoring ? "Restored." : "";
+            }
+        }
 
         if (!_headphones->_requestFuture.valid() && !_headphones->_sendCommandFuture.valid()) {
-            if (_requestShutdown) {
+            if (_tickEqPreview()) {
+                // EQ preview/rollback uses the same serialized sender as other settings.
+            }
+            else if (_exitRequested) {
+                // Wait for rollback; do not dispatch unrelated writes while quitting.
+            }
+            else if (_requestShutdown) {
                 _requestKind = RequestKind::Shutdown;
-                _headphones->_requestFuture.setFromAsync([this]() {
-                    if (_headphones)
-                        _headphones->requestPowerOff();
+                _headphones->_requestFuture.setFromAsync([target = _headphones.get()]() {
+                    target->requestPowerOff();
                 });
             }
             else if (_requestPlaybackControl != PLAYBACK_CONTROL::NONE) {
                 const auto control = _requestPlaybackControl;
                 _requestKind = RequestKind::Playback;
-                _headphones->_requestFuture.setFromAsync([this, control]() {
-                    if (_headphones)
-                        _headphones->requestPlaybackControl(control);
+                _headphones->_requestFuture.setFromAsync([target = _headphones.get(), control]() {
+                    target->requestPlaybackControl(control);
                 });
             }
             else if (_headphones->isChanged()) {
-                _headphones->_sendCommandFuture.setFromAsync([this]() {
-                    if (_headphones)
-                        _headphones->setChanges();
+                auto changes = _headphones->prepareChanges();
+                _headphones->_sendCommandFuture.setFromAsync([target = _headphones.get(), changes = std::move(changes)]() {
+                    target->applyChanges(changes);
                 });
             }
             else if (ImGui::GetTime() - _lastStateSyncTime >= _config.headphoneStateSyncInterval) {
                 _lastStateSyncTime = ImGui::GetTime();
                 _requestKind = RequestKind::Sync;
-                _headphones->_requestFuture.setFromAsync([this]() {
-                    if (_headphones)
-                        _headphones->requestSync();
+                _headphones->_requestFuture.setFromAsync([target = _headphones.get()]() {
+                    target->requestSync();
                 });
             }
         }
@@ -281,6 +449,21 @@ bool App::OnUpdate()
     }
     else {
         shouldUpdate = false;
+    }
+    } catch (const RecoverableException& exc) {
+        _logs.push_back(exc.what());
+        _autoReconnectPaused = true;
+        _requestShutdown = false;
+        _requestPlaybackControl = PLAYBACK_CONTROL::NONE;
+        _headphones.reset();
+        _connectionError = exc.what();
+        _eqStatusMessage = "EQ preview was not confirmed.";
+        if (_config.equalizerRecovery) _connectionError += " EQ restore pending: reconnect the same headset.";
+    } catch (const std::invalid_argument& exc) {
+        _logs.push_back(exc.what());
+        _autoReconnectPaused = true;
+        _headphones.reset();
+        _connectionError = exc.what();
     }
     return shouldUpdate;
 }
@@ -313,7 +496,7 @@ bool App::OnFrame()
         ImGui::PopFont();
         ImGui::SetCursorScreenPos(ImVec2(brand.x+57,brand.y+39));
         ImGui::PushFont(nullptr,12);
-        ImGui::TextDisabled("%s",_preview?"KHÔNG GIAN ÂM THANH · XEM THỬ":(_headphones?"KHÔNG GIAN ÂM THANH · ĐÃ KẾT NỐI":"KHÔNG GIAN ÂM THANH CỦA BẠN"));
+        ImGui::TextDisabled("%s",_preview?"Xem thử":(_headphones?"Đã kết nối":"Chưa kết nối"));
         ImGui::PopFont();
         ImGui::SetCursorScreenPos(ImVec2(brand.x+ImGui::GetWindowContentRegionMax().x-132,brand.y+4));
         if(ImGui::Button(_showSettings?"Hoàn tất":"Cài đặt",ImVec2(108,36)))_showSettings=!_showSettings;
@@ -394,14 +577,11 @@ void App::_drawDeviceDiscovery()
     }
 
     ImGui::Dummy(ImVec2(0,30));
-    ImGui::PushFont(nullptr,28); ImGui::TextWrapped("Âm nhạc hay hơn, theo cách của bạn."); ImGui::PopFont();
-    ImGui::TextDisabled("Chống ồn • Xuyên âm • Bộ chỉnh âm • Điều khiển nhạc");
-    ImGui::Dummy(ImVec2(0,28));
     ImGui::TextUnformatted("KẾT NỐI TAI NGHE");
     ImGui::Spacing();
-    ImGui::TextUnformatted("Chọn tai nghe Sony đã ghép đôi. Ứng dụng sẽ ghi nhớ cho lần sau.");
+    ImGui::TextUnformatted("Chọn tai nghe Sony đã ghép đôi.");
     if (_autoReconnectPaused)
-        ImGui::TextDisabled("Automatic reconnection is paused until you connect a device manually.");
+        ImGui::TextDisabled("Tự kết nối lại đang tạm dừng. Hãy kết nối thủ công để tiếp tục.");
     ImGui::Spacing();
 
     for (int index = 0; index < static_cast<int>(_availableDevices.size()); ++index) {
@@ -447,15 +627,19 @@ void App::_drawDeviceDiscovery()
     }
     ImGui::EndDisabled();
     ImGui::Dummy(ImVec2(0,24));
-    ImGui::TextDisabled("Chưa có tai nghe bên cạnh?");
     if(ImGui::Button("Khám phá giao diện",ImVec2(220,40))){
         _preview=true;
         _connectedDevice=BluetoothDevice("WH-1000XM5", "Preview");
         _headphones=std::make_unique<Headphones>(_bt,true);
         _headphones->batteryLayout=Headphones::BatteryLayout::Single;
         _headphones->statBatteryL.overwrite(90);
+        _headphones->asmFoucsOnVoice.overwrite(false);
+        _headphones->stcEnabled.overwrite(false);
+        _headphones->stcLevel.overwrite(0);
+        _headphones->stcTime.overwrite(1);
         _headphones->asmEnabled.overwrite(true); _headphones->asmLevel.overwrite(0);
-        _headphones->volume.overwrite(18); _headphones->eqPreset.overwrite(0);
+        _headphones->volume.overwrite(18); _headphones->eqPayloadType = 0;
+        _headphones->eqPreset.overwrite(0);
         _headphones->eqConfig.overwrite(Headphones::EqualizerConfig{});
     }
 }
@@ -487,10 +671,13 @@ void App::_finishPendingConnection()
             throw RecoverableException("Bluetooth connected, but the Sony control channel did not open", true);
 
         _headphones = std::make_unique<Headphones>(_bt);
+        _eqSession = EqualizerPreview{};
+        _eqSending = false;
+        _eqDraftInitialized = false;
+        _disconnectAfterEqRestore = false;
         _requestKind = RequestKind::Initialize;
-        _headphones->_requestFuture.setFromAsync([this]() {
-            if (this->_headphones)
-                this->_headphones->requestInit();
+        _headphones->_requestFuture.setFromAsync([target = _headphones.get()]() {
+            target->requestInit();
         });
 
         if (_connectionWasAutomatic || _autoReconnectAfterManualConnect)
@@ -517,28 +704,23 @@ void App::_drawSonyHome()
     const float w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
     ImDrawList* d = ImGui::GetWindowDrawList();
-    d->AddRectFilled(p, ImVec2(p.x+w,p.y+168),IM_COL32(231,228,249,255),20);
-    d->AddCircleFilled(ImVec2(p.x+w-108,p.y+84),66,IM_COL32(218,212,241,255),64);
+    d->AddRectFilled(p, ImVec2(p.x+w,p.y+128),IM_COL32(231,228,249,255),20);
+    d->AddCircleFilled(ImVec2(p.x+w-108,p.y+64),50,IM_COL32(218,212,241,255),64);
     // Code-native illustration: no model-specific product photograph is implied.
-    const ImVec2 c(p.x+w-108,p.y+84);
+    const ImVec2 c(p.x+w-108,p.y+64);
     d->PathArcTo(ImVec2(c.x,c.y-6),49,3.14f,6.29f,48);
     d->PathStroke(IM_COL32(68,62,94,255),12.0f);
     d->AddRectFilled(ImVec2(c.x-57,c.y-10),ImVec2(c.x-31,c.y+47),IM_COL32(68,62,94,255),12);
     d->AddRectFilled(ImVec2(c.x+31,c.y-10),ImVec2(c.x+57,c.y+47),IM_COL32(68,62,94,255),12);
     d->AddLine(ImVec2(c.x-45,c.y+3),ImVec2(c.x-45,c.y+33),IM_COL32(140,130,174,255),3);
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+24));
-    ImGui::TextColored(ImVec4(.40f,.33f,.64f,1),"YOUR SOUND. YOUR SPACE.");
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+58));
+    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+26));
     ImGui::PushFont(nullptr,26); ImGui::TextUnformatted(_connectedDevice.name.c_str()); ImGui::PopFont();
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+96));
-    ImGui::TextUnformatted("Đắm mình trong từng giai điệu.");
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+136));
+    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+80));
     ImGui::TextColored(ImVec4(.24f,.46f,.39f,1),"%s  •  Pin %s",_preview?"Xem thử":"Đã kết nối",state.statusBatteryText.c_str());
-    ImGui::SetCursorScreenPos(ImVec2(p.x,p.y+184));
+    ImGui::SetCursorScreenPos(ImVec2(p.x,p.y+144));
 
-    BeginRaisedCard("##HomeSound",ImVec2(0,194));
-    ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Chọn không gian nghe"); ImGui::PopFont();
-    ImGui::PushTextWrapPos(0); ImGui::TextDisabled("Tập trung vào âm nhạc hoặc lắng nghe xung quanh."); ImGui::PopTextWrapPos();
+    BeginRaisedCard("##HomeSound",ImVec2(0,150));
+    ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Kiểm soát tiếng ồn"); ImGui::PopFont();
     const char* labels[]={"Chống ồn","Xuyên âm","Tắt"};
     const float bw=(ImGui::GetContentRegionAvail().x-24)/3;
     for(int i=0;i<3;++i){
@@ -550,13 +732,12 @@ void App::_drawSonyHome()
     ImGui::Spacing();
     if(ImGui::BeginTable("##HomeShortcuts",2,ImGuiTableFlags_SizingStretchSame)){
         ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-        BeginRaisedCard("##EQShortcut",ImVec2(0,146));
-        ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Bộ chỉnh âm"); ImGui::PopFont(); ImGui::TextDisabled("5 dải tần + CLEAR BASS");
-        if(ImGui::Button("Tinh chỉnh âm sắc",ImVec2(-1,32))) _activePage=Page::Equalizer;
+        BeginRaisedCard("##EQShortcut",ImVec2(0,120));
+        ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Equalizer"); ImGui::PopFont();
+        if(ImGui::Button("Open Equalizer",ImVec2(-1,32))) _activePage=Page::Equalizer;
         ImGui::EndChild(); ImGui::TableSetColumnIndex(1);
-        BeginRaisedCard("##VoiceShortcut",ImVec2(0,146));
+        BeginRaisedCard("##VoiceShortcut",ImVec2(0,120));
         SoundToggle("Speak-to-Chat",&_headphones->stcEnabled.desired);
-        ImGui::PushTextWrapPos(0); ImGui::TextDisabled("Tự dừng nhạc khi bạn trò chuyện."); ImGui::PopTextWrapPos();
         ImGui::EndChild(); ImGui::EndTable();
     }
     ImGui::Spacing();
@@ -574,7 +755,7 @@ void App::_drawSonyHome()
     player->AddRectFilled(origin,ImVec2(origin.x+62,origin.y+62),IM_COL32(105,83,143,255),16);
     UIIcon(player,ImVec2(origin.x+31,origin.y+31),1,IM_COL32(228,215,251,255),14);
     ImGui::SetCursorScreenPos(ImVec2(origin.x+78,origin.y));
-    ImGui::TextColored(ImVec4(.85f,.79f,.94f,1),"%s",state.playing?"ĐANG PHÁT":"ÂM NHẠC CỦA BẠN");
+    ImGui::TextColored(ImVec4(.85f,.79f,.94f,1),"%s",state.playing?"ĐANG PHÁT":"Trình phát");
     ImGui::SetCursorScreenPos(ImVec2(origin.x+78,origin.y+23));
     ImGui::PushClipRect(ImVec2(origin.x+78,origin.y),ImVec2(origin.x+pw,origin.y+78),true);
     ImGui::PushFont(nullptr,18);
@@ -607,10 +788,7 @@ void App::_drawModernControls()
 
     const auto drawNavigation = [&]() {
         ImGui::Dummy(ImVec2(0,8));
-        ImGui::TextColored(ImVec4(.45f,.34f,.68f,1),"SOUND SPACE");
-        ImGui::PushFont(nullptr,12);ImGui::TextWrapped("Một chút riêng tư cho âm nhạc.");ImGui::PopFont();
-        ImGui::Dummy(ImVec2(0,22));
-        const char* labels[]={"Tổng quan","Âm thanh","Bộ chỉnh âm","Thiết bị"};
+        const char* labels[]={"Tổng quan","Âm thanh","Equalizer","Thiết bị"};
         for(int i=0;i<4;++i){
             if(NavigationButton(labels[i],i,_activePage==static_cast<Page>(i),ImGui::GetContentRegionAvail().x))_activePage=static_cast<Page>(i);
             ImGui::Dummy(ImVec2(0,2));
@@ -664,7 +842,6 @@ void App::_drawModernControls()
         }
         else if (_activePage == Page::Sound) {
             ImGui::TextUnformatted("Âm thanh");
-            ImGui::PushTextWrapPos(0); ImGui::TextDisabled("Điều chỉnh cách bạn nghe thế giới xung quanh."); ImGui::PopTextWrapPos();
             ImGui::Spacing();
 
             BeginRaisedCard("##NoiseControl", ImVec2(0, 324));
@@ -703,37 +880,37 @@ void App::_drawModernControls()
             ImGui::EndChild();
         }
         else if (_activePage == Page::Equalizer) {
-            if (!_eqDraftInitialized) {
-                _eqDraft = _headphones->eqConfig.current;
-                if (_eqDraft.bands.size() != 5)
-                    _eqDraft = Headphones::EqualizerConfig{};
-                _eqDraftPreset = _headphones->eqPreset.current;
-                _eqDraftInitialized = true;
-                _eqStatusMessage.clear();
-            }
+            const bool ready = _ensureEqSession();
+            if (_eqDraft.bands.size() != 5) _eqDraft = Headphones::EqualizerConfig{};
 
             static const std::vector<std::pair<int, const char*>> presets = {
-                { 0x00, "Tắt" }, { 0x10, "Bright" }, { 0x11, "Excited" },
+                { 0x00, "Off" }, { 0x10, "Bright" }, { 0x11, "Excited" },
                 { 0x12, "Mellow" }, { 0x13, "Relaxed" }, { 0x14, "Vocal" },
-                { 0x15, "Treble boost" }, { 0x16, "Bass boost" }, { 0x17, "Speech" },
+                { 0x15, "Treble Boost" }, { 0x16, "Bass Boost" }, { 0x17, "Speech" },
                 { 0xa0, "Custom" }, { 0xa1, "Custom 1" }, { 0xa2, "Custom 2" }
             };
             const auto presetName = [&](int code) {
                 auto item = std::find_if(presets.begin(), presets.end(), [&](const auto& preset) { return preset.first == code; });
-                return item == presets.end() ? "Cấu hình chưa hỗ trợ" : item->second;
+                if (code == 0xff) return "Custom";
+                return item == presets.end() ? "Unsupported preset" : item->second;
             };
 
-            ImGui::TextUnformatted("Bộ chỉnh âm");
-            ImGui::PushTextWrapPos(0); ImGui::TextDisabled("Điều chỉnh 5 dải tần và bass. Chọn Áp dụng để gửi đến tai nghe."); ImGui::PopTextWrapPos();
+            ImGui::TextUnformatted("Equalizer");
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Live preview. Apply to keep; leaving restores the previous EQ.");
+            ImGui::PopTextWrapPos();
             ImGui::Spacing();
             BeginRaisedCard("##EqualizerEditor", ImVec2(0, 0));
-            ImGui::TextUnformatted("Cấu hình âm thanh");
+            ImGui::BeginDisabled(!ready || _eqSession.restoring() || _exitRequested);
+            ImGui::TextUnformatted("Preset");
             ImGui::SetNextItemWidth(-1);
             if (ImGui::BeginCombo("##Preset", presetName(_eqDraftPreset))) {
                 for (const auto& [code, name] : presets) {
                     const bool selected = _eqDraftPreset == code;
-                    if (ImGui::Selectable(name, selected))
+                    if (ImGui::Selectable(name, selected)) {
                         _eqDraftPreset = code;
+                        _editEqPreview(false);
+                    }
                     if (selected)
                         ImGui::SetItemDefaultFocus();
                 }
@@ -741,20 +918,22 @@ void App::_drawModernControls()
             }
 
             ImGui::Spacing();
-            ImGui::SeparatorText("Đường cong âm thanh");
+            ImGui::SeparatorText("EQ curve");
+            if (!_eqSession.curveReady()) ImGui::TextDisabled("Reading the preset curve from the headset...");
             const ImVec2 chart = ImGui::GetCursorScreenPos();
             const float cw = ImGui::GetContentRegionAvail().x;
             ImDrawList* graph = ImGui::GetWindowDrawList();
             graph->AddRectFilled(chart,ImVec2(chart.x+cw,chart.y+112),IM_COL32(242,240,250,255),12);
             for(int row=1;row<4;++row) graph->AddLine(ImVec2(chart.x+16,chart.y+row*28),ImVec2(chart.x+cw-16,chart.y+row*28),IM_COL32(219,216,232,255));
             ImVec2 previous;
-            for(int i=0;i<5;++i){
+            for(int i=0;_eqSession.curveReady() && i<5;++i){
                 ImVec2 point(chart.x+24+i*(cw-48)/4,chart.y+56-_eqDraft.bands[i]*4);
                 if(i) graph->AddLine(previous,point,IM_COL32(112,90,182,255),3);
                 graph->AddCircleFilled(point,5,IM_COL32(112,90,182,255),20);
                 previous=point;
             }
             ImGui::Dummy(ImVec2(cw,112));
+            ImGui::BeginDisabled(!_eqSession.curveReady());
             const char* bandNames[] = { "400 Hz", "1 kHz", "2.5 kHz", "6.3 kHz", "16 kHz" };
             if (ImGui::BeginTable("##EqualizerBands", 5, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextRow();
@@ -762,55 +941,61 @@ void App::_drawModernControls()
                 ImGui::TableSetColumnIndex(index);
                 ImGui::PushID(index);
                 ImGui::TextDisabled("%s", bandNames[index]);
-                if (SonySlider("##Band", &_eqDraft.bands[index], -10, 10, true))
-                    _eqDraftPreset = 0xa0;
+                if (SonySlider("##Band", &_eqDraft.bands[index], -10, 10, true)) {
+                    _eqDraftPreset = _headphones->eqPayloadType == 1 ? 0xff : 0xa0;
+                    _editEqPreview(true);
+                }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: %+d dB", bandNames[index], _eqDraft.bands[index]);
-                ImGui::TextDisabled("%+d dB", _eqDraft.bands[index]);
+                if (_eqSession.curveReady()) ImGui::TextDisabled("%+d dB", _eqDraft.bands[index]);
+                else ImGui::TextDisabled("--");
                 ImGui::PopID();
             }
             ImGui::EndTable();
             }
             ImGui::Spacing();
-            ImGui::SeparatorText("CLEAR BASS");
+            ImGui::SeparatorText("Clear Bass");
             ImGui::SetNextItemWidth(-1);
-            ImGui::TextDisabled("%+d", _eqDraft.bassLevel);
-            if (SonySlider("##ClearBass", &_eqDraft.bassLevel, -10, 10))
-                _eqDraftPreset = 0xa0;
+            if (_eqSession.curveReady()) ImGui::TextDisabled("%+d", _eqDraft.bassLevel);
+            else ImGui::TextDisabled("--");
+            if (SonySlider("##ClearBass", &_eqDraft.bassLevel, -10, 10)) {
+                _eqDraftPreset = _headphones->eqPayloadType == 1 ? 0xff : 0xa0;
+                _editEqPreview(true);
+            }
+            ImGui::EndDisabled();
 
-            const bool custom = _eqDraftPreset == 0xa0;
-            const bool changed = custom
-                ? (_eqDraft != _headphones->eqConfig.current || _headphones->eqPreset.current != 0xa0)
-                : (_eqDraftPreset != _headphones->eqPreset.current);
             ImGui::Spacing();
-            ImGui::BeginDisabled(!changed || _headphones->_sendCommandFuture.valid());
-            if (ImGui::Button("Áp dụng", ImVec2(120, 38))) {
-                if (custom) {
-                    _headphones->eqConfig.desired = _eqDraft;
-                    _headphones->eqConfig.flagPending();
-                }
-                else {
-                    _headphones->eqPreset.desired = _eqDraftPreset;
-                }
-                _eqStatusMessage = "Đang gửi cài đặt EQ đến tai nghe...";
+            ImGui::BeginDisabled(!_eqSession.canApply() || !currentEqualizer(*_headphones).matches(_eqSession.draft()));
+            if (ImGui::Button("Apply", ImVec2(120, 38)) && _eqSession.apply()) {
+                _clearEqRecovery();
+                _eqStatusMessage = "Applied.";
             }
             ImGui::EndDisabled();
             ImGui::SameLine();
-            ImGui::BeginDisabled(!changed);
-            if (ImGui::Button("Hoàn tác", ImVec2(120, 38)))
-                _eqDraftInitialized = false;
+            ImGui::BeginDisabled(!_eqSession.needsRestore());
+            if (ImGui::Button("Revert", ImVec2(120, 38))) {
+                _eqSession.restore();
+                _syncEqDraft();
+                _eqStatusMessage = "Restoring the previous EQ...";
+            }
             ImGui::EndDisabled();
             ImGui::SameLine();
-            if (ImGui::Button("Đặt phẳng", ImVec2(100, 38))) {
+            if (ImGui::Button("Flat", ImVec2(100, 38))) {
                 _eqDraft = Headphones::EqualizerConfig{};
-                _eqDraftPreset = 0xa0;
+                _eqDraftPreset = _headphones->eqPayloadType == 1 ? 0xff : 0xa0;
+                _editEqPreview(true);
             }
-            if (!_eqStatusMessage.empty())
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Set all five EQ bands and Clear Bass to 0.");
+            ImGui::EndDisabled();
+            if (!_eqStatusMessage.empty()) {
+                ImGui::PushTextWrapPos(0);
                 ImGui::TextDisabled("%s", _eqStatusMessage.c_str());
+                ImGui::PopTextWrapPos();
+            }
             ImGui::EndChild();
         }
         else if (_activePage == Page::Device) {
             ImGui::TextUnformatted("Thiết bị");
-            ImGui::TextDisabled("Quản lý kết nối và tùy chọn tai nghe.");
             ImGui::Spacing();
 
             ImGui::BeginChild("##ConnectedDevice", ImVec2(0, 126), true);
@@ -861,18 +1046,32 @@ void App::_drawModernControls()
         ImGui::EndTable();
 
     if (disconnectRequested) {
-        _preview = false;
-        _autoReconnectPaused = true;
-        throw RecoverableException("Disconnected by user", true);
+        _disconnectAfterEqRestore = true;
+        cancelEqualizerPreview();
     }
 }
 
 void App::_drawConfig()
 {
         ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "CÀI ĐẶT");
-        ImGui::TextUnformatted("Tùy chọn ứng dụng và chẩn đoán");
         ImGui::TextDisabled("Thay đổi được lưu khi đóng ứng dụng.");
         ImGui::Spacing();
+
+#ifdef __APPLE__
+        ImGui::SeparatorText("Nội dung trên menubar");
+        auto& display = _config.menuBarDisplay;
+        display.normalize();
+        const char* labels[] = {"Biểu tượng tai nghe", "Phần trăm pin", "Tên tai nghe", "Chế độ chống ồn / xuyên âm"};
+        bool* choices[] = {&display.showIcon, &display.showBattery, &display.showDeviceName, &display.showSoundMode};
+        for (int i = 0; i < 4; ++i) {
+            ImGui::BeginDisabled(*choices[i] && display.visibleCount() == 1);
+            ImGui::Checkbox(labels[i], choices[i]);
+            ImGui::EndDisabled();
+        }
+        const auto status = menuBarState();
+        ImGui::TextDisabled("Xem trước: %s%s", display.showIcon ? "[biểu tượng] " : "", status.statusTitle.c_str());
+        ImGui::Spacing();
+#endif
 
         ImGui::SeparatorText("Kết nối");
         if (_config.autoConnectDeviceMac.empty()) {
@@ -956,20 +1155,27 @@ void App::_drawConfig()
 App::MenuBarState App::menuBarState() const
 {
     MenuBarState state;
+    state.display = _config.menuBarDisplay;
+    state.display.normalize();
+    state.statusTitle = formatMenuBarTitle(state.display, false, "", "--", "");
     if (!_headphones)
         return state;
+    state.soundControlAvailable = _headphones->asmEnabled.reported && _headphones->asmLevel.reported && _headphones->asmFoucsOnVoice.reported;
+    state.speakToChatAvailable = _headphones->stcEnabled.reported;
+    state.speakToChatConfigAvailable = _headphones->stcLevel.reported && _headphones->stcTime.reported;
+    state.equalizerAvailable = _headphones->eqPreset.reported;
 
     state.connected = true;
     state.deviceName = _connectedDevice.name;
-    state.soundControlMode = !_headphones->asmEnabled.desired
+    state.soundControlMode = !_headphones->asmEnabled.current
         ? SoundControlMode::Off
-        : (_headphones->asmLevel.desired <= 0
+        : (_headphones->asmLevel.current <= 0
             ? SoundControlMode::NoiseCancelling
             : SoundControlMode::AmbientSound);
-    state.speakToChatEnabled = _headphones->stcEnabled.desired;
-    state.speakToChatSensitivity = _headphones->stcLevel.desired;
-    state.speakToChatCloseTime = _headphones->stcTime.desired;
-    state.equalizerPreset = _headphones->eqPreset.desired;
+    state.speakToChatEnabled = _headphones->stcEnabled.current;
+    state.speakToChatSensitivity = _headphones->stcLevel.current;
+    state.speakToChatCloseTime = _headphones->stcTime.current;
+    state.equalizerPreset = _headphones->eqPreset.current;
     state.playing = _headphones->playPause.current;
 
     const auto percent = [](int value) {
@@ -990,7 +1196,21 @@ App::MenuBarState App::menuBarState() const
     else {
         state.batteryDescription = "Waiting for battery status";
     }
+    const std::string mode = !state.soundControlAvailable ? "Chờ trạng thái" :
+        (state.soundControlMode == SoundControlMode::NoiseCancelling ? "Chống ồn" :
+         state.soundControlMode == SoundControlMode::AmbientSound ? "Xuyên âm" : "Tắt chống ồn");
+    state.statusTitle = formatMenuBarTitle(state.display, state.connected, state.deviceName,
+        state.statusBatteryText, mode);
     return state;
+}
+
+void App::toggleMenuBarDisplayOption(int option)
+{
+    auto& display = _config.menuBarDisplay;
+    bool* choices[] = {&display.showIcon, &display.showBattery, &display.showDeviceName, &display.showSoundMode};
+    if (option < 0 || option >= 4) return;
+    if (*choices[option] && display.visibleCount() == 1) return;
+    *choices[option] = !*choices[option];
 }
 
 void App::setMenuBarSoundControlMode(SoundControlMode mode)
@@ -1035,10 +1255,12 @@ void App::setMenuBarSpeakToChatCloseTime(int closeTime)
 
 void App::setMenuBarEqualizerPreset(int preset)
 {
-    if (!_headphones)
-        return;
-    _headphones->eqPreset.desired = preset;
-    _eqDraftInitialized = false;
+    if (!_headphones || _exitRequested) return;
+    _activePage = Page::Equalizer;
+    _showSettings = false;
+    if (!_ensureEqSession()) return;
+    _eqDraftPreset = preset;
+    _editEqPreview(false);
 }
 
 void App::toggleMenuBarPlayback()
@@ -1047,11 +1269,11 @@ void App::toggleMenuBarPlayback()
         return;
     if (_headphones->playPause.current) {
         _requestPlaybackControl = PLAYBACK_CONTROL::PAUSE;
-        _headphones->playPause.overwrite(false);
+
     }
     else {
         _requestPlaybackControl = PLAYBACK_CONTROL::PLAY;
-        _headphones->playPause.overwrite(true);
+
     }
 }
 
@@ -1081,66 +1303,22 @@ App::App(BluetoothWrapper&& bt, AppConfig& config)
         _headphones = std::make_unique<Headphones>(_bt, true);
         _headphones->batteryLayout = Headphones::BatteryLayout::Single;
         _headphones->statBatteryL.overwrite(90);
+        _headphones->asmFoucsOnVoice.overwrite(false);
+        _headphones->stcEnabled.overwrite(false);
+        _headphones->stcLevel.overwrite(0);
+        _headphones->stcTime.overwrite(1);
         _headphones->asmEnabled.overwrite(true);
         _headphones->asmLevel.overwrite(0);
         _headphones->volume.overwrite(18);
+        _headphones->eqPayloadType = 0;
         _headphones->eqPreset.overwrite(0);
         _headphones->eqConfig.overwrite(Headphones::EqualizerConfig{});
         _headphones->playback.title = "Bản nhạc minh họa";
         _headphones->playback.artist = "Chế độ xem thử";
-        _headphones->playPause.overwrite(true);
+
         return;
     }
     this->_connectedDevicesFuture.setFromAsync([this]() { return this->_bt.getConnectedDevices(); });
 }
 
 ///
-bool AppConfig::load(std::string const& configPath)
-{
-    std::cout << "Loading config:" << configPath << std::endl;
-    std::ifstream file(configPath);
-    if (!file.is_open())
-        return false;
-
-    toml::table table = toml::parse(file);
-    showDisclaimers = table["showDisclaimers"].value<bool>().value_or(true);
-
-    autoConnectDeviceMac = table["autoConnectDeviceMac"].value<std::string>().value_or("");
-    imguiFontFile = table["imguiFontFile"].value<std::string>().value_or("");
-    imguiFontSize = table["typographyVersion"].value<int>().value_or(0) >= 1
-        ? std::clamp(table["imguiFontSize"].value<int>().value_or(14), 12, 32) : 14;
-	headphoneStateSyncInterval = std::max(15.0f, table["headphoneStateSyncInterval"].value<float>().value_or(15.0f));
-    if (table["shellCommands"].as_table())
-    {
-        headphoneInteractionShellCommands.clear();
-        for (auto& [k, v] : *table["shellCommands"].as_table()) {
-            std::string ks{ k.str() };
-            std::string vs = v.value<std::string>().value_or("");
-            headphoneInteractionShellCommands.push_back({ks,vs});
-        }
-    }
-    return true;
-}
-
-bool AppConfig::save(std::string const& configPath)
-{
-    if(getenv("SONY_UI_PREVIEW")) return true;
-    std::cout << "Saving config:" << configPath << std::endl;
-    std::ofstream file(configPath);
-    if (!file.is_open())
-        return false;
-
-    toml::table table;
-    table.insert("showDisclaimers", showDisclaimers);
-    table.insert("imguiFontSize", imguiFontSize);
-    table.insert("typographyVersion", 1);
-    table.insert("shellCommands", toml::table{});
-    for (auto& [k, v] : headphoneInteractionShellCommands)
-        table["shellCommands"].as_table()->insert(k.data(), v.data());
-
-    table.insert("imguiFontFile", imguiFontFile);
-    table.insert("autoConnectDeviceMac", autoConnectDeviceMac);
-    table.insert("headphoneStateSyncInterval", headphoneStateSyncInterval);
-    file << toml::toml_formatter{ table };
-    return true;
-}

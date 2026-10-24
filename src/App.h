@@ -21,10 +21,7 @@
 #include <filesystem>
 #include <memory>
 
-#define TOML_HEADER_ONLY 0
-#include <toml++/toml.hpp>
-
-#include "platform/IBluetoothConnector.h"
+#include "AppConfig.h"
 #ifdef __APPLE__
 #include "platform/macos/MacOSNowPlayingProvider.h"
 #endif
@@ -32,17 +29,6 @@ constexpr auto GUI_MESSAGE_BOX_SIZE = 5;
 constexpr auto GUI_DEFAULT_HEIGHT = 860;
 constexpr auto GUI_DEFAULT_WIDTH = 1120;
 constexpr auto DEFAULT_FONT_SIZE = 14.0f;
-struct AppConfig {
-public:
-    bool showDisclaimers = true;
-    std::string autoConnectDeviceMac{};
-    std::vector<std::pair<std::string, std::string>> headphoneInteractionShellCommands{};
-    std::string imguiFontFile{};
-    int imguiFontSize = DEFAULT_FONT_SIZE;
-	float headphoneStateSyncInterval = 15.0f;
-    bool load(std::string const& configPath);
-    bool save(std::string const& configPath);
-};
 //This class should be constructed AFTER the Dear ImGUI context is initialized.
 class App
 {
@@ -55,6 +41,12 @@ public:
 
     struct MenuBarState {
         bool connected = false;
+        MenuBarDisplayPreferences display;
+        std::string statusTitle;
+        bool soundControlAvailable = false;
+        bool speakToChatAvailable = false;
+        bool speakToChatConfigAvailable = false;
+        bool equalizerAvailable = false;
         std::string deviceName;
         std::string statusBatteryText = "--";
         std::string batteryDescription = "Battery unavailable";
@@ -75,6 +67,9 @@ public:
     // O: true if the user wants to close the window
     bool OnFrame();
     MenuBarState menuBarState() const;
+    void cancelEqualizerPreview();
+    bool prepareForExit();
+    void toggleMenuBarDisplayOption(int option);
     void setMenuBarSoundControlMode(SoundControlMode mode);
     void setMenuBarSpeakToChatEnabled(bool enabled);
     void setMenuBarSpeakToChatSensitivity(int sensitivity);
@@ -83,6 +78,11 @@ public:
     void toggleMenuBarPlayback();
 private:
     bool _preview = false;
+    bool _ensureEqSession();
+    bool _tickEqPreview();
+    void _editEqPreview(bool writeCurve);
+    void _syncEqDraft();
+    void _clearEqRecovery();
     void _drawDeviceDiscovery();
     void _drawModernControls();
     void _drawSonyHome();
@@ -109,6 +109,11 @@ private:
     int _eqDraftPreset = static_cast<int>(EQ_PRESET_ID::OFF);
     bool _eqDraftInitialized = false;
     std::string _eqStatusMessage{};
+    EqualizerPreview _eqSession;
+    bool _eqSending = false;
+    std::shared_ptr<std::optional<EqualizerState>> _eqReadback;
+    bool _exitRequested = false;
+    bool _disconnectAfterEqRestore = false;
 
     AppConfig & _config;
 

@@ -1,6 +1,7 @@
 #include "SingleInstanceFuture.h"
 #include "BluetoothWrapper.h"
 #include "Constants.h"
+#include "EqualizerPreview.h"
 
 #include <mutex>
 #include <iostream>
@@ -14,6 +15,7 @@ struct Property
 	T desired{};
 
 	bool pendingRequest = false;
+	bool reported = false;
 
 	void flagPending()
 	{
@@ -35,6 +37,7 @@ struct Property
 	};
 	void overwrite(T const &value)
 	{
+		reported = true;
 		current = value;
 		desired = value;
 		this->pendingRequest = false;
@@ -172,13 +175,22 @@ public:
 	Property<int> eqPreset;
 	Property<EqualizerConfig> eqConfig;
 	// 0x00 for the current V2/V3 payload, 0x01 for older V1 devices.
-	uint8_t eqPayloadType = 0x00;
+	uint8_t eqPayloadType = 0xff;
 
 	// Touch sensor function
 	Property<TOUCH_SENSOR_FUNCTION> touchLeftFunc{}, touchRightFunc{};
 
 	bool isChanged();
-	void setChanges();
+	struct SettingChange {
+        Buffer command, query;
+        DATA_TYPE type;
+        std::function<bool(const Buffer&)> matches;
+    };
+    EqualizerState applyEqualizerChange(const SettingChange& change);
+    SettingChange prepareEqualizerChange(const EqualizerState& target, bool writeCurve) const;
+    std::vector<SettingChange> prepareChanges();
+    void applyChanges(const std::vector<SettingChange>& changes);
+    void setChanges();
 
 	void waitForAck(int timeout = 1);
 
@@ -208,10 +220,7 @@ public:
 	SingleInstanceFuture<void> _requestFuture;
 
 private:
-	std::mutex _propertyMtx, _ackMtx;
-	unsigned int _availableAcks = 0;
 	BluetoothWrapper &_conn;
-	std::condition_variable _ackCV;
 	std::optional<uint8_t> _batteryDualPayloadType;
 	std::optional<uint8_t> _batteryCasePayloadType;
 

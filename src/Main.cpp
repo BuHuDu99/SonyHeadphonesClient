@@ -130,7 +130,7 @@ struct MenuBarPreset {
 constexpr MenuBarPreset kMenuBarPresets[] = {
     { 0x00, "Off" }, { 0x10, "Bright" }, { 0x11, "Excited" },
     { 0x12, "Mellow" }, { 0x13, "Relaxed" }, { 0x14, "Vocal" },
-    { 0x15, "Treble boost" }, { 0x16, "Bass boost" }, { 0x17, "Speech" },
+    { 0x15, "Treble Boost" }, { 0x16, "Bass Boost" }, { 0x17, "Speech" },
     { 0xa0, "Custom" }, { 0xa1, "Custom 1" }, { 0xa2, "Custom 2" }
 };
 
@@ -161,6 +161,8 @@ NSString* nsString(const std::string& value)
     App* _app;
     GLFWwindow* _window;
     NSStatusItem* _statusItem;
+    NSImage* _statusImage;
+    NSMutableArray* _displayItems;
     NSMenuItem* _deviceItem;
     NSMenuItem* _batteryItem;
     NSMenuItem* _soundControlRoot;
@@ -189,6 +191,7 @@ NSString* nsString(const std::string& value)
     _speakToChatSensitivityItems = [[NSMutableArray alloc] init];
     _speakToChatCloseTimeItems = [[NSMutableArray alloc] init];
     _equalizerItems = [[NSMutableArray alloc] init];
+    _displayItems = [[NSMutableArray alloc] init];
     _lastUpdateTime = 0;
 
     _statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
@@ -196,11 +199,13 @@ NSString* nsString(const std::string& value)
     NSImage* image = [NSImage imageWithSystemSymbolName:@"headphones"
                               accessibilityDescription:@"Sony Headphones"];
     [image setTemplate:YES];
+    _statusImage = [image retain];
     button.image = image;
     button.imagePosition = NSImageLeft;
     button.title = @" --";
 
     NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Sony Headphones Client"];
+    menu.autoenablesItems = NO;
     NSMenuItem* openItem = [[NSMenuItem alloc] initWithTitle:@"Open Sony Headphones Client"
                                                       action:@selector(showWindow:)
                                                keyEquivalent:@""];
@@ -218,6 +223,7 @@ NSString* nsString(const std::string& value)
                                                    action:nil
                                             keyEquivalent:@""];
     NSMenu* soundControlMenu = [[NSMenu alloc] initWithTitle:@"Sound Control"];
+    soundControlMenu.autoenablesItems = NO;
     for (const auto& mode : kSoundControlModes) {
         NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:mode.name]
                                                       action:@selector(selectSoundControlMode:)
@@ -234,6 +240,7 @@ NSString* nsString(const std::string& value)
                                                              action:nil
                                                       keyEquivalent:@""];
     NSMenu* speakToChatMenu = [[NSMenu alloc] initWithTitle:@"Speak-to-Chat"];
+    speakToChatMenu.autoenablesItems = NO;
     _speakToChatEnabledItem = [[NSMenuItem alloc] initWithTitle:@"Enabled"
                                                          action:@selector(toggleSpeakToChat:)
                                                   keyEquivalent:@""];
@@ -246,6 +253,7 @@ NSString* nsString(const std::string& value)
                                                              action:nil
                                                       keyEquivalent:@""];
     NSMenu* sensitivityMenu = [[NSMenu alloc] initWithTitle:@"Voice Detect Sensitivity"];
+    sensitivityMenu.autoenablesItems = NO;
     for (const auto& sensitivity : kSpeakToChatSensitivities) {
         NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:sensitivity.name]
                                                       action:@selector(selectSpeakToChatSensitivity:)
@@ -265,6 +273,7 @@ NSString* nsString(const std::string& value)
                                                            action:nil
                                                     keyEquivalent:@""];
     NSMenu* closeTimeMenu = [[NSMenu alloc] initWithTitle:@"Close Time"];
+    closeTimeMenu.autoenablesItems = NO;
     for (const auto& closeTime : kSpeakToChatCloseTimes) {
         NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:closeTime.name]
                                                       action:@selector(selectSpeakToChatCloseTime:)
@@ -294,6 +303,7 @@ NSString* nsString(const std::string& value)
                                                            action:nil
                                                     keyEquivalent:@""];
     NSMenu* equalizerMenu = [[NSMenu alloc] initWithTitle:@"Equalizer"];
+    equalizerMenu.autoenablesItems = NO;
     for (const auto& preset : kMenuBarPresets) {
         NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:preset.name]
                                                       action:@selector(selectEqualizer:)
@@ -316,6 +326,25 @@ NSString* nsString(const std::string& value)
     [menu addItem:_playbackItem];
     [_playbackItem release];
 
+    [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem* displayRoot = [[NSMenuItem alloc] initWithTitle:@"Nội dung trên menubar" action:nil keyEquivalent:@""];
+    NSMenu* displayMenu = [[NSMenu alloc] initWithTitle:@"Nội dung trên menubar"];
+    NSArray* displayLabels = @[@"Biểu tượng tai nghe", @"Phần trăm pin", @"Tên tai nghe", @"Chế độ chống ồn / xuyên âm"];
+    for (NSInteger index = 0; index < 4; ++index) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:displayLabels[index]
+            action:@selector(toggleDisplayOption:) keyEquivalent:@""];
+        item.target = self;
+        item.tag = index;
+        [displayMenu addItem:item];
+        [_displayItems addObject:item];
+        [item release];
+    }
+    // Explicit enablement keeps the last visible item accessible.
+    displayMenu.autoenablesItems = NO;
+    displayRoot.submenu = displayMenu;
+    [menu addItem:displayRoot];
+    [displayMenu release];
+    [displayRoot release];
     [menu addItem:[NSMenuItem separatorItem]];
     NSMenuItem* quitItem = [[NSMenuItem alloc] initWithTitle:@"Quit Sony Headphones Client"
                                                       action:@selector(quitApplication:)
@@ -370,6 +399,7 @@ NSString* nsString(const std::string& value)
 - (void)selectEqualizer:(NSMenuItem*)sender
 {
     _app->setMenuBarEqualizerPreset(static_cast<int>(sender.tag));
+    [self showWindow:nil];
     _lastUpdateTime = 0;
     [self update];
 }
@@ -377,6 +407,13 @@ NSString* nsString(const std::string& value)
 - (void)togglePlayback:(id)sender
 {
     _app->toggleMenuBarPlayback();
+    _lastUpdateTime = 0;
+    [self update];
+}
+
+- (void)toggleDisplayOption:(NSMenuItem*)sender
+{
+    _app->toggleMenuBarDisplayOption(static_cast<int>(sender.tag));
     _lastUpdateTime = 0;
     [self update];
 }
@@ -394,28 +431,37 @@ NSString* nsString(const std::string& value)
     _lastUpdateTime = now;
 
     const auto state = _app->menuBarState();
-    _statusItem.button.title = [@" " stringByAppendingString:nsString(state.statusBatteryText)];
+    _statusItem.button.image = state.display.showIcon ? _statusImage : nil;
+    _statusItem.button.title = state.statusTitle.empty() ? @"" :
+        (state.display.showIcon ? [@" " stringByAppendingString:nsString(state.statusTitle)] : nsString(state.statusTitle));
+    _statusItem.button.toolTip = state.connected ? nsString(state.deviceName + " — " + state.batteryDescription) : @"Sony Headphones — Chưa kết nối";
+    const bool selected[] = {state.display.showIcon, state.display.showBattery, state.display.showDeviceName, state.display.showSoundMode};
+    for (NSMenuItem* item in _displayItems) {
+        item.state = selected[item.tag] ? NSControlStateValueOn : NSControlStateValueOff;
+        item.enabled = !selected[item.tag] || state.display.visibleCount() > 1;
+    }
     _deviceItem.title = state.connected && !state.deviceName.empty()
         ? nsString(state.deviceName)
         : @"Not connected";
     _batteryItem.title = nsString(state.batteryDescription);
-    _soundControlRoot.enabled = state.connected;
+    _soundControlRoot.enabled = state.connected && state.soundControlAvailable;
     for (NSMenuItem* item in _soundControlItems) {
         item.state = item.tag == static_cast<NSInteger>(state.soundControlMode)
             ? NSControlStateValueOn
             : NSControlStateValueOff;
     }
+    _speakToChatEnabledItem.enabled = state.connected && state.speakToChatAvailable;
     _speakToChatEnabledItem.state = state.speakToChatEnabled
         ? NSControlStateValueOn
         : NSControlStateValueOff;
     for (NSMenuItem* item in _speakToChatSensitivityItems) {
-        item.enabled = state.speakToChatEnabled;
+        item.enabled = state.connected && state.speakToChatConfigAvailable && state.speakToChatEnabled;
         item.state = item.tag == state.speakToChatSensitivity
             ? NSControlStateValueOn
             : NSControlStateValueOff;
     }
     for (NSMenuItem* item in _speakToChatCloseTimeItems) {
-        item.enabled = state.speakToChatEnabled;
+        item.enabled = state.connected && state.speakToChatConfigAvailable && state.speakToChatEnabled;
         item.state = item.tag == state.speakToChatCloseTime
             ? NSControlStateValueOn
             : NSControlStateValueOff;
@@ -423,7 +469,7 @@ NSString* nsString(const std::string& value)
     _playbackItem.enabled = state.connected;
     _playbackItem.title = state.playing ? @"Pause" : @"Play";
     for (NSMenuItem* item in _equalizerItems) {
-        item.enabled = state.connected;
+        item.enabled = state.connected && state.equalizerAvailable;
         item.state = item.tag == state.equalizerPreset ? NSControlStateValueOn : NSControlStateValueOff;
     }
 }
@@ -435,6 +481,8 @@ NSString* nsString(const std::string& value)
     [_speakToChatSensitivityItems release];
     [_speakToChatCloseTimeItems release];
     [_equalizerItems release];
+    [_displayItems release];
+    [_statusImage release];
     [super dealloc];
 }
 @end
@@ -601,9 +649,17 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
                 initWithApp:&app
                      window:window];
 #endif
-            while (!glfwWindowShouldClose(window))
+            bool exitRequested = false;
+            while (true)
             {
                 glfwPollEvents();
+                if (glfwWindowShouldClose(window)) {
+                    exitRequested = true;
+                    glfwSetWindowShouldClose(window, GLFW_FALSE);
+                }
+                if (exitRequested && app.prepareForExit()) break;
+                if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) || !glfwGetWindowAttrib(window, GLFW_VISIBLE))
+                    app.cancelEqualizerPreview();
                 static float sCurrentScale = 1.0f;
                 float scaleX, scaleY, scale = 1.0;
 #ifndef __APPLE__
