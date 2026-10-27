@@ -1,4 +1,11 @@
-# Sound Connect Desktop — Build 23
+# Sound Connect Desktop — Build 28
+
+Quy chuẩn hiện tại: [DESIGN.md](../../DESIGN.md).
+Kiểm tra, nguồn tham khảo và giới hạn: [UI Build 28](ui-build28-verification.md).
+
+Phần dưới giữ lại ghi chép thiết kế Build 23 để theo dõi lịch sử.
+
+## Ghi chép Build 23
 
 Bản phát hành chính thức của giao diện đã chốt ngày 23/10/2026, dùng lõi C++/IOBluetooth của SonyHeadphonesClient.
 

@@ -1,15 +1,24 @@
 #include "App.h"
 
 #include "imgui_internal.h"
+#include "UiTheme.h"
 #include <cmath>
 
 namespace {
+void ClippedText(const char* text, float width)
+{
+    const auto p = ImGui::GetCursorScreenPos();
+    ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(),p,ImVec2(p.x+width,p.y+ImGui::GetTextLineHeight()),p.x+width,text,nullptr,nullptr);
+    ImGui::Dummy(ImVec2(width,ImGui::GetTextLineHeight()));
+    if (ImGui::IsItemHovered() && ImGui::CalcTextSize(text).x > width) ImGui::SetTooltip("%s",text);
+}
+
 float AnimateControl(ImGuiID id, bool on);
 bool SonySlider(const char* id, int* value, int low, int high, bool vertical = false)
 {
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const float width = vertical ? 44.0f : ImGui::GetContentRegionAvail().x;
-    const float height = vertical ? 160.0f : 34.0f;
+    const float height = vertical ? 136.0f : 36.0f;
     ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered,ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive,ImVec4(0,0,0,0));
@@ -28,11 +37,11 @@ bool SonySlider(const char* id, int* value, int low, int high, bool vertical = f
     const ImVec2 a(start.x+(vertical?width*.5f:18), start.y+(vertical?12:height*.5f));
     const ImVec2 b(start.x+(vertical?width*.5f:width-18), start.y+(vertical?height-18:height*.5f));
     const ImVec2 thumb(vertical?a.x:a.x+(b.x-a.x)*t,vertical?b.y-(b.y-a.y)*t:a.y);
-    const ImU32 color=ImGui::GetColorU32(ImVec4(.60f,.50f,.81f,1));
-    d->AddLine(a,b,ImGui::GetColorU32(ImVec4(.74f,.75f,.78f,1)),2);
+    const ImU32 color=ImGui::GetColorU32(ImGuiCol_SliderGrab);
+    d->AddLine(a,b,ImGui::GetColorU32(UiTheme::border),2);
     d->AddLine(vertical?b:a,thumb,color,2);
     float halo=AnimateControl(ImHashStr("halo",0,ImGui::GetItemID()),ImGui::IsItemActive()||ImGui::IsItemHovered());
-    d->AddCircleFilled(thumb,10+4*halo,ImGui::GetColorU32(ImVec4(.60f,.49f,.81f,.16f*halo)),32);
+    d->AddCircleFilled(thumb,10+4*halo,ImGui::GetColorU32(ImVec4(UiTheme::accent.x,UiTheme::accent.y,UiTheme::accent.z,.12f*halo)),32);
     d->AddCircleFilled(thumb,6, color,32);
     return changed;
 }
@@ -42,6 +51,7 @@ float AnimateControl(ImGuiID id, bool on)
     ImGuiStorage* storage = ImGui::GetStateStorage();
     float value = storage->GetFloat(id, on ? 1.0f : 0.0f);
     const float target = on ? 1.0f : 0.0f;
+    if (UiTheme::reduceMotion) { storage->SetFloat(id,target); return target; }
     value += (target-value) * (1.0f-std::exp(-18.0f*ImGui::GetIO().DeltaTime));
     storage->SetFloat(id,value);
     return value;
@@ -55,10 +65,12 @@ bool SoundToggle(const char* label, bool* enabled)
     const bool clicked = ImGui::InvisibleButton("##Toggle",ImVec2(width,36),ImGuiButtonFlags_EnableNav);
     if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     if (clicked) *enabled = !*enabled;
+    if (ImGui::GetIO().NavVisible && ImGui::IsItemFocused())
+        ImGui::GetWindowDrawList()->AddRect(p,ImVec2(p.x+width,p.y+36),ImGui::GetColorU32(UiTheme::accent),6,0,1.5f);
     const float t = AnimateControl(ImGui::GetID("##Animation"),*enabled);
     ImDrawList* d = ImGui::GetWindowDrawList();
     const float x = p.x+width-48;
-    const ImVec4 color = ImLerp(ImVec4(.75f,.77f,.81f,1),ImVec4(.27f,.34f,.68f,1),t);
+    const ImVec4 color = ImLerp(ImVec4(.67f,.66f,.71f,1),UiTheme::accent,t);
     d->AddText(ImVec2(p.x,p.y+8),ImGui::GetColorU32(ImGuiCol_Text),label);
     d->AddRectFilled(ImVec2(x,p.y+4),ImVec2(x+48,p.y+32),ImGui::GetColorU32(color),14);
     d->AddCircleFilled(ImVec2(x+14+t*20,p.y+18),11,IM_COL32_WHITE,32);
@@ -95,8 +107,8 @@ bool NavigationButton(const char* label, int icon, bool selected, float width)
     float t=AnimateControl(ImGui::GetID("selection"),selected);
     float h=AnimateControl(ImGui::GetID("hover"),hover);
     ImDrawList* d=ImGui::GetWindowDrawList();
-    d->AddRectFilled(p,ImVec2(p.x+width,p.y+48),ImGui::GetColorU32(ImVec4(.63f,.54f,.87f,.08f*h+.18f*t)),13);
-    ImU32 ink=ImGui::GetColorU32(ImLerp(ImVec4(.30f,.28f,.37f,1),ImVec4(.39f,.28f,.65f,1),t));
+    d->AddRectFilled(p,ImVec2(p.x+width,p.y+48),ImGui::GetColorU32(ImVec4(UiTheme::accent.x,UiTheme::accent.y,UiTheme::accent.z,.04f*h+.10f*t)),13);
+    ImU32 ink=ImGui::GetColorU32(ImLerp(UiTheme::muted,UiTheme::accent,t));
     UIIcon(d,ImVec2(p.x+23,p.y+24),icon,ink);
     d->AddText(ImVec2(p.x+44,p.y+(48-ImGui::GetFontSize())*.5f),ink,label);
     if(t>.01f)d->AddCircleFilled(ImVec2(p.x+width-13,p.y+24),3,ImGui::GetColorU32(ImVec4(.48f,.35f,.75f,t)),16);
@@ -108,36 +120,41 @@ bool ListeningModeButton(const char* label, int mode, bool selected, float width
 {
     ImGui::PushID(label);
     const ImVec2 p=ImGui::GetCursorScreenPos();
-    const bool clicked=ImGui::InvisibleButton("##Mode",ImVec2(width,78),ImGuiButtonFlags_EnableNav);
+    const bool clicked=ImGui::InvisibleButton("##Mode",ImVec2(width,72),ImGuiButtonFlags_EnableNav);
     const bool hover=ImGui::IsItemHovered();
     if(hover)ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     const float t=AnimateControl(ImGui::GetID("selected"),selected);
     const float h=AnimateControl(ImGui::GetID("hover"),hover);
     ImDrawList* d=ImGui::GetWindowDrawList();
-    const ImVec2 end(p.x+width,p.y+78),c(p.x+width*.5f,p.y+25);
-    d->AddRectFilled(p,end,ImGui::GetColorU32(ImLerp(ImVec4(.97f,.96f,.985f,1),ImVec4(.90f,.86f,.97f,1),t*.85f+h*.15f)),15);
-    d->AddRect(p,end,ImGui::GetColorU32(ImVec4(.52f,.40f,.75f,.12f*h+.32f*t)),15,0,1.2f);
+    const ImVec2 end(p.x+width,p.y+72),c(p.x+width*.5f,p.y+23);
+    d->AddRectFilled(p,end,ImGui::GetColorU32(ImLerp(UiTheme::subtle,UiTheme::accentTint,t*.85f+h*.15f)),15);
+    d->AddRect(p,end,ImGui::GetColorU32(ImVec4(UiTheme::accent.x,UiTheme::accent.y,UiTheme::accent.z,.18f*h+.65f*t)),15,0,1.2f);
     d->AddCircleFilled(c,19+h*3,ImGui::GetColorU32(ImVec4(.53f,.40f,.77f,.06f+.08f*h+.08f*t)),40);
-    const ImU32 ink=ImGui::GetColorU32(ImLerp(ImVec4(.32f,.29f,.39f,1),ImVec4(.40f,.28f,.65f,1),t));
+    const ImU32 ink=ImGui::GetColorU32(ImLerp(UiTheme::muted,UiTheme::accent,t));
     if(mode==2){d->PathArcTo(c,8,-.8f,3.94f,24);d->PathStroke(ink,1.8f);d->AddLine(ImVec2(c.x,c.y-10),ImVec2(c.x,c.y-1),ink,1.8f);}
     else {
         for(int i=-2;i<=2;++i){float hh=(mode==0?9-std::abs(i)*3:3+std::abs(i)*3);d->AddLine(ImVec2(c.x+i*4,c.y-hh),ImVec2(c.x+i*4,c.y+hh),ink,2.f);}
     }
     ImVec2 text=ImGui::CalcTextSize(label);
     d->AddText(ImVec2(p.x+(width-text.x)*.5f,p.y+52),ink,label);
-    if(ImGui::GetIO().NavVisible && ImGui::IsItemFocused())d->AddRect(p,end,ink,15,0,1.5f);
+    if(selected) {
+        const ImVec2 check(end.x-13,p.y+13);
+        d->AddLine(ImVec2(check.x-4,check.y),ImVec2(check.x-1,check.y+3),ink,1.8f);
+        d->AddLine(ImVec2(check.x-1,check.y+3),ImVec2(check.x+5,check.y-4),ink,1.8f);
+    }
+    if(ImGui::GetIO().NavVisible && ImGui::IsItemFocused())d->AddRect(p,end,ink,12,0,2.f);
     ImGui::PopID();return clicked;
 }
 
 bool TransportButton(const char* id, int kind, bool primary=false)
 {
     ImGui::PushID(id);
-    ImVec2 p=ImGui::GetCursorScreenPos();float size=primary?44:36;
+    ImVec2 p=ImGui::GetCursorScreenPos();float size=44;
     bool clicked=ImGui::InvisibleButton("##Transport",ImVec2(size,size),ImGuiButtonFlags_EnableNav);
     bool hover=ImGui::IsItemHovered();if(hover)ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     float h=AnimateControl(ImGui::GetID("hover"),hover);
     ImVec2 c(p.x+size/2,p.y+size/2);ImDrawList* d=ImGui::GetWindowDrawList();
-    d->AddCircleFilled(c,size/2,ImGui::GetColorU32(primary?ImVec4(.82f+.1f*h,.75f+.1f*h,.98f,1):ImVec4(1,1,1,.04f+.10f*h)),40);
+    d->AddCircleFilled(c,size/2,ImGui::GetColorU32(primary?ImVec4(.87f+.07f*h,.82f+.07f*h,.97f,1):ImVec4(1,1,1,.06f+.10f*h)),40);
     ImU32 ink=primary?IM_COL32(50,39,73,255):IM_COL32(229,223,244,255);
     if(kind==0)d->AddTriangleFilled(ImVec2(c.x-4,c.y-8),ImVec2(c.x-4,c.y+8),ImVec2(c.x+8,c.y),ink);
     else if(kind==1){d->AddRectFilled(ImVec2(c.x-6,c.y-7),ImVec2(c.x-2,c.y+7),ink,1);d->AddRectFilled(ImVec2(c.x+2,c.y-7),ImVec2(c.x+6,c.y+7),ink,1);}
@@ -480,7 +497,7 @@ bool App::OnFrame()
         static bool open = true;
         ImGui::Begin("Sony Headphones", &open,
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoCollapse);
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
         if (_preview) {
             static bool initialPreview = true;
             if(initialPreview) {ImGui::SetScrollY(0); initialPreview=false;}
@@ -488,19 +505,13 @@ bool App::OnFrame()
 
         const ImVec2 brand=ImGui::GetCursorScreenPos();
         ImDrawList* header=ImGui::GetWindowDrawList();
-        header->AddRectFilled(brand,ImVec2(brand.x+42,brand.y+42),IM_COL32(113,85,167,255),13);
-        UIIcon(header,ImVec2(brand.x+21,brand.y+21),1,IM_COL32(244,235,255,255),11);
-        ImGui::SetCursorScreenPos(ImVec2(brand.x+56,brand.y-2));
-        ImGui::PushFont(nullptr,28);
-        ImGui::TextColored(ImVec4(.30f,.21f,.46f,1),"Sound Connect");
-        ImGui::PopFont();
-        ImGui::SetCursorScreenPos(ImVec2(brand.x+57,brand.y+39));
-        ImGui::PushFont(nullptr,12);
-        ImGui::TextDisabled("%s",_preview?"Xem thử":(_headphones?"Đã kết nối":"Chưa kết nối"));
-        ImGui::PopFont();
-        ImGui::SetCursorScreenPos(ImVec2(brand.x+ImGui::GetWindowContentRegionMax().x-132,brand.y+4));
-        if(ImGui::Button(_showSettings?"Hoàn tất":"Cài đặt",ImVec2(108,36)))_showSettings=!_showSettings;
-        ImGui::SetCursorScreenPos(ImVec2(brand.x,brand.y+72));
+        header->AddRectFilled(brand,ImVec2(brand.x+32,brand.y+32),ImGui::GetColorU32(UiTheme::accent),9);
+        UIIcon(header,ImVec2(brand.x+16,brand.y+16),1,IM_COL32_WHITE,8);
+        ImGui::SetCursorScreenPos(ImVec2(brand.x+44,brand.y-2));
+        ImGui::PushFont(nullptr,22); ImGui::TextUnformatted("Sound Connect"); ImGui::PopFont();
+        ImGui::SetCursorScreenPos(ImVec2(brand.x+ImGui::GetContentRegionAvail().x-108,brand.y-2));
+        if(ImGui::Button(_showSettings?"Hoàn tất":"Cài đặt",ImVec2(96,36)))_showSettings=!_showSettings;
+        ImGui::SetCursorScreenPos(ImVec2(brand.x,brand.y+52));
 
         if (_showSettings) {
             ImGui::BeginChild("##SettingsCard", ImVec2(0, 0), true);
@@ -576,14 +587,15 @@ void App::_drawDeviceDiscovery()
         _connectedDevicesFuture.setFromAsync([this]() { return this->_bt.getConnectedDevices(); });
     }
 
-    ImGui::Dummy(ImVec2(0,30));
-    ImGui::TextUnformatted("KẾT NỐI TAI NGHE");
+    ImGui::PushFont(nullptr,22); ImGui::TextUnformatted("Kết nối tai nghe"); ImGui::PopFont();
     ImGui::Spacing();
     ImGui::TextUnformatted("Chọn tai nghe Sony đã ghép đôi.");
     if (_autoReconnectPaused)
         ImGui::TextDisabled("Tự kết nối lại đang tạm dừng. Hãy kết nối thủ công để tiếp tục.");
     ImGui::Spacing();
 
+    const float listHeight = std::clamp(ImGui::GetContentRegionAvail().y - 170.0f, 100.0f, 320.0f);
+    ImGui::BeginChild("##PairedDevices",ImVec2(0,listHeight),ImGuiChildFlags_Borders);
     for (int index = 0; index < static_cast<int>(_availableDevices.size()); ++index) {
         const auto& device = _availableDevices[index];
         std::string label = device.name + "##" + device.mac;
@@ -596,6 +608,7 @@ void App::_drawDeviceDiscovery()
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("%s", device.mac.c_str());
     }
+    ImGui::EndChild();
 
     if (_availableDevices.empty() && !_connectedDevicesFuture.valid())
         ImGui::TextDisabled("Chưa tìm thấy thiết bị. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS rồi chọn Tìm lại.");
@@ -606,7 +619,9 @@ void App::_drawDeviceDiscovery()
 
     if (!_connectionError.empty()) {
         ImGui::Spacing();
-        ImGui::TextColored(ImVec4(1.0f, 0.38f, 0.38f, 1.0f), "%s", _connectionError.c_str());
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(.65f,.18f,.23f,1), "%s", _connectionError.c_str());
+        ImGui::PopTextWrapPos();
     }
 
     ImGui::Spacing();
@@ -626,8 +641,8 @@ void App::_drawDeviceDiscovery()
         _connectedDevicesFuture.setFromAsync([this]() { return this->_bt.getConnectedDevices(); });
     }
     ImGui::EndDisabled();
-    ImGui::Dummy(ImVec2(0,24));
-    if(ImGui::Button("Khám phá giao diện",ImVec2(220,40))){
+    ImGui::Spacing();
+    if(ImGui::Button("Xem thử giao diện",ImVec2(180,36))){
         _preview=true;
         _connectedDevice=BluetoothDevice("WH-1000XM5", "Preview");
         _headphones=std::make_unique<Headphones>(_bt,true);
@@ -703,80 +718,93 @@ void App::_drawSonyHome()
     const auto state = menuBarState();
     const float w = ImGui::GetContentRegionAvail().x;
     const ImVec2 p = ImGui::GetCursorScreenPos();
-    ImDrawList* d = ImGui::GetWindowDrawList();
-    d->AddRectFilled(p, ImVec2(p.x+w,p.y+128),IM_COL32(231,228,249,255),20);
-    d->AddCircleFilled(ImVec2(p.x+w-108,p.y+64),50,IM_COL32(218,212,241,255),64);
-    // Code-native illustration: no model-specific product photograph is implied.
-    const ImVec2 c(p.x+w-108,p.y+64);
-    d->PathArcTo(ImVec2(c.x,c.y-6),49,3.14f,6.29f,48);
-    d->PathStroke(IM_COL32(68,62,94,255),12.0f);
-    d->AddRectFilled(ImVec2(c.x-57,c.y-10),ImVec2(c.x-31,c.y+47),IM_COL32(68,62,94,255),12);
-    d->AddRectFilled(ImVec2(c.x+31,c.y-10),ImVec2(c.x+57,c.y+47),IM_COL32(68,62,94,255),12);
-    d->AddLine(ImVec2(c.x-45,c.y+3),ImVec2(c.x-45,c.y+33),IM_COL32(140,130,174,255),3);
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+26));
-    ImGui::PushFont(nullptr,26); ImGui::TextUnformatted(_connectedDevice.name.c_str()); ImGui::PopFont();
-    ImGui::SetCursorScreenPos(ImVec2(p.x+24,p.y+80));
-    ImGui::TextColored(ImVec4(.24f,.46f,.39f,1),"%s  •  Pin %s",_preview?"Xem thử":"Đã kết nối",state.statusBatteryText.c_str());
-    ImGui::SetCursorScreenPos(ImVec2(p.x,p.y+144));
+    auto* d = ImGui::GetWindowDrawList();
+    d->AddRectFilled(p,ImVec2(p.x+w,p.y+102),ImGui::GetColorU32(UiTheme::surface),UiTheme::radius);
+    d->AddRect(p,ImVec2(p.x+w,p.y+102),ImGui::GetColorU32(UiTheme::border),UiTheme::radius);
+    d->AddRectFilled(ImVec2(p.x+18,p.y+23),ImVec2(p.x+66,p.y+71),ImGui::GetColorU32(UiTheme::subtle),10);
+    UIIcon(d,ImVec2(p.x+42,p.y+44),3,ImGui::GetColorU32(UiTheme::accent),11);
+    const std::string batteryLabel = "Pin " + state.statusBatteryText;
+    const float batteryWidth = std::max(82.f,ImGui::CalcTextSize(batteryLabel.c_str()).x+28);
+    ImGui::SetCursorScreenPos(ImVec2(p.x+82,p.y+24));
+    ImGui::PushFont(nullptr,24);
+    ClippedText(_connectedDevice.name.c_str(),std::max(60.f,w-batteryWidth-118));
+    ImGui::PopFont();
+    ImGui::SetCursorScreenPos(ImVec2(p.x+82,p.y+61));
+    ImGui::TextColored(UiTheme::success,"%s",_preview?"Thiết bị minh họa":"Đã kết nối");
+    const ImVec2 battery(p.x+w-batteryWidth-18,p.y+29);
+    d->AddRectFilled(battery,ImVec2(battery.x+batteryWidth,battery.y+38),ImGui::GetColorU32(UiTheme::subtle),8);
+    d->AddText(ImVec2(battery.x+14,battery.y+11),ImGui::GetColorU32(UiTheme::ink),batteryLabel.c_str());
+    ImGui::SetCursorScreenPos(ImVec2(p.x,p.y+114));
 
-    BeginRaisedCard("##HomeSound",ImVec2(0,150));
+    BeginRaisedCard("##HomeSound",ImVec2(0,140));
     ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Kiểm soát tiếng ồn"); ImGui::PopFont();
+    if (!state.soundControlAvailable) { ImGui::SameLine(); ImGui::TextDisabled("Đang đọc trạng thái..."); }
+    ImGui::BeginDisabled(!state.soundControlAvailable);
     const char* labels[]={"Chống ồn","Xuyên âm","Tắt"};
-    const float bw=(ImGui::GetContentRegionAvail().x-24)/3;
+    const float bw=(ImGui::GetContentRegionAvail().x-ImGui::GetStyle().ItemSpacing.x*2)/3;
     for(int i=0;i<3;++i){
         if(i) ImGui::SameLine();
-        if(ListeningModeButton(labels[i],i,static_cast<int>(state.soundControlMode)==i,bw))
+        if(ListeningModeButton(labels[i],i,state.soundControlAvailable && static_cast<int>(state.soundControlMode)==i,bw))
             setMenuBarSoundControlMode(static_cast<SoundControlMode>(i));
     }
+    ImGui::EndDisabled();
     ImGui::EndChild();
     ImGui::Spacing();
     if(ImGui::BeginTable("##HomeShortcuts",2,ImGuiTableFlags_SizingStretchSame)){
         ImGui::TableNextRow(); ImGui::TableSetColumnIndex(0);
-        BeginRaisedCard("##EQShortcut",ImVec2(0,120));
+        BeginRaisedCard("##EQShortcut",ImVec2(0,108));
         ImGui::PushFont(nullptr,18); ImGui::TextUnformatted("Equalizer"); ImGui::PopFont();
-        if(ImGui::Button("Open Equalizer",ImVec2(-1,32))) _activePage=Page::Equalizer;
+        if(ImGui::Button("Mở Equalizer",ImVec2(-1,34))) _activePage=Page::Equalizer;
         ImGui::EndChild(); ImGui::TableSetColumnIndex(1);
-        BeginRaisedCard("##VoiceShortcut",ImVec2(0,120));
+        BeginRaisedCard("##VoiceShortcut",ImVec2(0,108));
+        ImGui::BeginDisabled(!state.speakToChatAvailable);
         SoundToggle("Speak-to-Chat",&_headphones->stcEnabled.desired);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("%s",state.speakToChatAvailable ? (state.speakToChatEnabled?"Đang bật":"Đang tắt") : "Đang đọc trạng thái...");
         ImGui::EndChild(); ImGui::EndTable();
     }
     ImGui::Spacing();
-    ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4(.18f,.15f,.25f,1));
-    BeginRaisedCard("##HomePlayer",ImVec2(0,178));
-    ImGui::PopStyleColor();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg,UiTheme::player);
+    ImGui::PushStyleColor(ImGuiCol_Border,UiTheme::player);
+    ImGui::PushStyleColor(ImGuiCol_Text,UiTheme::onPlayer);
+    BeginRaisedCard("##HomePlayer",ImVec2(0,166));
     const ImVec2 origin=ImGui::GetCursorScreenPos();
-    ImDrawList* player=ImGui::GetWindowDrawList();
     const float pw=ImGui::GetContentRegionAvail().x;
     const std::string* title=&_headphones->playback.title;
     const std::string* artist=&_headphones->playback.artist;
 #ifdef __APPLE__
     if(_hasSystemNowPlaying){title=&_systemNowPlaying.title;artist=&_systemNowPlaying.artist;}
 #endif
-    player->AddRectFilled(origin,ImVec2(origin.x+62,origin.y+62),IM_COL32(105,83,143,255),16);
-    UIIcon(player,ImVec2(origin.x+31,origin.y+31),1,IM_COL32(228,215,251,255),14);
-    ImGui::SetCursorScreenPos(ImVec2(origin.x+78,origin.y));
-    ImGui::TextColored(ImVec4(.85f,.79f,.94f,1),"%s",state.playing?"ĐANG PHÁT":"Trình phát");
-    ImGui::SetCursorScreenPos(ImVec2(origin.x+78,origin.y+23));
-    ImGui::PushClipRect(ImVec2(origin.x+78,origin.y),ImVec2(origin.x+pw,origin.y+78),true);
+    ImGui::TextColored(UiTheme::playerMuted,"%s",state.playing?"Đang phát":"Trình phát");
+    ImGui::SetCursorScreenPos(ImVec2(origin.x,origin.y+23));
     ImGui::PushFont(nullptr,18);
-    ImGui::TextColored(ImVec4(.98f,.96f,1,1),"%s",title->empty()?"Sẵn sàng cho giai điệu tiếp theo":title->c_str());
+    ClippedText(title->empty()?"Chưa có nội dung đang phát":title->c_str(),pw);
     ImGui::PopFont();
-    ImGui::SetCursorScreenPos(ImVec2(origin.x+78,origin.y+52));
-    ImGui::TextColored(ImVec4(.86f,.82f,.93f,1),"%s",artist->empty()?"Phát nhạc từ ứng dụng bạn yêu thích":artist->c_str());
-    ImGui::PopClipRect();
-    ImGui::SetCursorScreenPos(ImVec2(origin.x,origin.y+82));
+    ImGui::SetCursorScreenPos(ImVec2(origin.x,origin.y+49));
+    ImGui::PushStyleColor(ImGuiCol_Text,UiTheme::playerMuted);
+    ClippedText(artist->empty()?"—":artist->c_str(),pw);
+    ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos(ImVec2(origin.x,origin.y+81));
     using enum PLAYBACK_CONTROL;
+    ImGui::BeginDisabled(!_headphones->volume.reported);
     if(TransportButton("Bài trước",2))_requestPlaybackControl=PREV;
     ImGui::SameLine();
     if(TransportButton(state.playing?"Tạm dừng":"Phát",state.playing?1:0,true))toggleMenuBarPlayback();
     ImGui::SameLine();
     if(TransportButton("Bài tiếp theo",3))_requestPlaybackControl=NEXT;
-    const float volumeX=origin.x+std::max(190.f,pw*.43f);
+    ImGui::EndDisabled();
+    const float volumeX=origin.x+std::max(184.f,pw*.40f);
     ImGui::SetCursorScreenPos(ImVec2(volumeX,origin.y+78));
-    ImGui::TextColored(ImVec4(.86f,.82f,.93f,1),"Âm lượng · %d%%",_headphones->volume.desired*100/30);
-    ImGui::SetCursorScreenPos(ImVec2(volumeX,origin.y+100));
+    if (_headphones->volume.reported) ImGui::TextColored(UiTheme::playerMuted,"Âm lượng · %d%%",_headphones->volume.desired*100/30);
+    else ImGui::TextColored(UiTheme::playerMuted,"Âm lượng · --");
+    ImGui::BeginDisabled(!_headphones->volume.reported);
+    ImGui::SetCursorScreenPos(ImVec2(volumeX,origin.y+99));
+    ImGui::PushStyleColor(ImGuiCol_SliderGrab,ImVec4(.84f,.77f,.96f,1));
     SonySlider("##HomeVolume",&_headphones->volume.desired,0,30);
+    ImGui::PopStyleColor();
+    ImGui::EndDisabled();
     ImGui::EndChild();
+    ImGui::PopStyleColor(3);
 }
 
 void App::_drawModernControls()
@@ -796,7 +824,7 @@ void App::_drawModernControls()
         if(ImGui::GetContentRegionAvail().y>145){
             ImGui::SetCursorPosY(ImGui::GetCursorPosY()+ImGui::GetContentRegionAvail().y-110);
             ImGui::Separator();ImGui::Spacing();
-            ImGui::TextUnformatted(_connectedDevice.name.c_str());
+            ClippedText(_connectedDevice.name.c_str(),ImGui::GetContentRegionAvail().x);
             ImGui::TextColored(ImVec4(.31f,.56f,.46f,1),"%s",_preview?"Thiết bị minh họa":"Bluetooth đã kết nối");
             ImGui::TextDisabled("Pin %s",menuBarState().statusBatteryText.c_str());
         }
@@ -808,7 +836,7 @@ void App::_drawModernControls()
         for (int index=0;index<4;++index) {
             if(index) ImGui::SameLine();
             const bool selected = static_cast<int>(_activePage)==index;
-            ImGui::PushStyleColor(ImGuiCol_Button, selected ? ImVec4(.78f,.81f,.93f,1) : ImVec4(0,0,0,0));
+            ImGui::PushStyleColor(ImGuiCol_Button, selected ? UiTheme::accentTint : ImVec4(0,0,0,0));
             if(ImGui::Button(pageNames[index],ImVec2(tabWidth,38))) _activePage=static_cast<Page>(index);
             ImGui::PopStyleColor();
         }
@@ -819,11 +847,11 @@ void App::_drawModernControls()
     if (wideLayout) {
         if (ImGui::BeginTable("##MainNavigation", 2, ImGuiTableFlags_SizingStretchProp)) {
             navigationTableBegun = true;
-            ImGui::TableSetupColumn("Navigation", ImGuiTableColumnFlags_WidthFixed, 230.0f);
+            ImGui::TableSetupColumn("Navigation", ImGuiTableColumnFlags_WidthFixed, 188.0f);
             ImGui::TableSetupColumn("Content", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::PushStyleColor(ImGuiCol_ChildBg,ImVec4(.95f,.94f,.975f,1));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg,UiTheme::subtle);
             ImGui::BeginChild("##Sidebar", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
             drawNavigation();
             ImGui::EndChild();
@@ -836,6 +864,10 @@ void App::_drawModernControls()
         }
     }
 
+    if (!wideLayout) {
+        contentVisible = ImGui::BeginChild("##NarrowPageContent",ImVec2(0,0),false);
+        contentChildBegun = true;
+    }
     if (contentVisible) {
         if (_activePage == Page::Overview) {
             _drawSonyHome();
@@ -844,8 +876,9 @@ void App::_drawModernControls()
             ImGui::TextUnformatted("Âm thanh");
             ImGui::Spacing();
 
-            BeginRaisedCard("##NoiseControl", ImVec2(0, 324));
+            BeginRaisedCard("##NoiseControl", ImVec2(0, 284));
             ImGui::TextUnformatted("Kiểm soát tiếng ồn");
+            ImGui::BeginDisabled(!menuBarState().soundControlAvailable);
             int mode = !_headphones->asmEnabled.desired ? 2 : (_headphones->asmLevel.desired <= 0 ? 0 : 1);
             const float modeWidth = (ImGui::GetContentRegionAvail().x-ImGui::GetStyle().ItemSpacing.x*2)/3;
             if (ListeningModeButton("Chống ồn",0,mode==0,modeWidth))
@@ -864,18 +897,26 @@ void App::_drawModernControls()
             SoundToggle("Ưu tiên giọng nói", &_headphones->asmFoucsOnVoice.desired);
             ImGui::EndDisabled();
             ImGui::Unindent(16);
+            ImGui::EndDisabled();
             ImGui::EndChild();
 
             ImGui::Spacing();
-            BeginRaisedCard("##SpeakToChat", ImVec2(0, 220));
-            ImGui::TextUnformatted("Speak-to-chat");
-            ImGui::TextDisabled("Tự dừng nhạc khi bạn bắt đầu trò chuyện.");
+            const float voiceHeight=ImGui::GetStyle().WindowPadding.y*2 + 56 +
+                2*(ImGui::GetTextLineHeight()+ImGui::GetFrameHeight()+ImGui::GetStyle().ItemSpacing.y*2);
+            BeginRaisedCard("##SpeakToChat", ImVec2(0, voiceHeight));
+            ImGui::BeginDisabled(!menuBarState().speakToChatAvailable);
             SoundToggle("Speak-to-Chat", &_headphones->stcEnabled.desired);
-            ImGui::BeginDisabled(!_headphones->stcEnabled.desired);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tự dừng nhạc khi bạn bắt đầu trò chuyện.");
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!_headphones->stcEnabled.desired || !menuBarState().speakToChatConfigAvailable);
             const char* sensitivities[] = { "Tự động", "Cao", "Thấp" };
             const char* closeTimes[] = { "Ngắn", "Tiêu chuẩn", "Dài", "Không tự tắt" };
-            ImGui::Combo("Độ nhạy giọng nói", &_headphones->stcLevel.desired, sensitivities, 3);
-            ImGui::Combo("Thời gian chờ", &_headphones->stcTime.desired, closeTimes, 4);
+            ImGui::TextUnformatted("Độ nhạy giọng nói");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::Combo("##VoiceSensitivity", &_headphones->stcLevel.desired, sensitivities, 3);
+            ImGui::TextUnformatted("Thời gian chờ");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::Combo("##VoiceCloseTime", &_headphones->stcTime.desired, closeTimes, 4);
             ImGui::EndDisabled();
             ImGui::EndChild();
         }
@@ -923,13 +964,17 @@ void App::_drawModernControls()
             const ImVec2 chart = ImGui::GetCursorScreenPos();
             const float cw = ImGui::GetContentRegionAvail().x;
             ImDrawList* graph = ImGui::GetWindowDrawList();
-            graph->AddRectFilled(chart,ImVec2(chart.x+cw,chart.y+112),IM_COL32(242,240,250,255),12);
-            for(int row=1;row<4;++row) graph->AddLine(ImVec2(chart.x+16,chart.y+row*28),ImVec2(chart.x+cw-16,chart.y+row*28),IM_COL32(219,216,232,255));
+            graph->AddRectFilled(chart,ImVec2(chart.x+cw,chart.y+112),ImGui::GetColorU32(UiTheme::subtle),8);
+            for(int db : {-10,0,10}) {
+                const float y=chart.y+56-db*4;
+                graph->AddLine(ImVec2(chart.x+38,y),ImVec2(chart.x+cw-12,y),ImGui::GetColorU32(UiTheme::border),db==0?1.5f:1.f);
+                graph->AddText(ImGui::GetFont(),11,ImVec2(chart.x+8,y-6),ImGui::GetColorU32(UiTheme::muted),db==10?"+10":db==-10?"-10":"0");
+            }
             ImVec2 previous;
             for(int i=0;_eqSession.curveReady() && i<5;++i){
-                ImVec2 point(chart.x+24+i*(cw-48)/4,chart.y+56-_eqDraft.bands[i]*4);
-                if(i) graph->AddLine(previous,point,IM_COL32(112,90,182,255),3);
-                graph->AddCircleFilled(point,5,IM_COL32(112,90,182,255),20);
+                ImVec2 point(chart.x+(i+.5f)*cw/5,chart.y+56-_eqDraft.bands[i]*4);
+                if(i) graph->AddLine(previous,point,ImGui::GetColorU32(UiTheme::accent),3);
+                graph->AddCircleFilled(point,5,ImGui::GetColorU32(UiTheme::accent),20);
                 previous=point;
             }
             ImGui::Dummy(ImVec2(cw,112));
@@ -940,12 +985,16 @@ void App::_drawModernControls()
             for (int index = 0; index < 5; ++index) {
                 ImGui::TableSetColumnIndex(index);
                 ImGui::PushID(index);
+                const float columnX=ImGui::GetCursorPosX(), columnWidth=ImGui::GetContentRegionAvail().x;
+                ImGui::SetCursorPosX(columnX+std::max(0.f,(columnWidth-ImGui::CalcTextSize(bandNames[index]).x)*.5f));
                 ImGui::TextDisabled("%s", bandNames[index]);
+                ImGui::SetCursorPosX(columnX+std::max(0.f,(columnWidth-44)*.5f));
                 if (SonySlider("##Band", &_eqDraft.bands[index], -10, 10, true)) {
                     _eqDraftPreset = _headphones->eqPayloadType == 1 ? 0xff : 0xa0;
                     _editEqPreview(true);
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: %+d dB", bandNames[index], _eqDraft.bands[index]);
+                ImGui::SetCursorPosX(columnX+std::max(0.f,(columnWidth-44)*.5f));
                 if (_eqSession.curveReady()) ImGui::TextDisabled("%+d dB", _eqDraft.bands[index]);
                 else ImGui::TextDisabled("--");
                 ImGui::PopID();
@@ -965,10 +1014,14 @@ void App::_drawModernControls()
 
             ImGui::Spacing();
             ImGui::BeginDisabled(!_eqSession.canApply() || !currentEqualizer(*_headphones).matches(_eqSession.draft()));
+            ImGui::PushStyleColor(ImGuiCol_Button,UiTheme::accent);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,UiTheme::accentHover);
+            ImGui::PushStyleColor(ImGuiCol_Text,UiTheme::surface);
             if (ImGui::Button("Apply", ImVec2(120, 38)) && _eqSession.apply()) {
                 _clearEqRecovery();
                 _eqStatusMessage = "Applied.";
             }
+            ImGui::PopStyleColor(3);
             ImGui::EndDisabled();
             ImGui::SameLine();
             ImGui::BeginDisabled(!_eqSession.needsRestore());
@@ -1006,9 +1059,15 @@ void App::_drawModernControls()
 
             ImGui::Spacing();
             ImGui::BeginChild("##DeviceOptions", ImVec2(0, 0), true);
+            ImGui::BeginDisabled(!_headphones->voiceCapEnabled.reported);
             SoundToggle("Thu giọng nói khi gọi điện", &_headphones->voiceCapEnabled.desired);
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!_headphones->miscVoiceGuidanceVol.reported);
             ImGui::SliderInt("Âm lượng hướng dẫn", &_headphones->miscVoiceGuidanceVol.desired, -2, 2);
+            ImGui::EndDisabled();
+            ImGui::BeginDisabled(!_headphones->mpEnabled.reported);
             SoundToggle("Kết nối đa điểm", &_headphones->mpEnabled.desired);
+            ImGui::EndDisabled();
             if (!_headphones->connectedDevices.empty()) {
                 ImGui::SeparatorText("Thiết bị đa điểm");
                 for (auto& [mac, device] : _headphones->connectedDevices) {
@@ -1053,7 +1112,7 @@ void App::_drawModernControls()
 
 void App::_drawConfig()
 {
-        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "CÀI ĐẶT");
+        ImGui::PushFont(nullptr,20); ImGui::TextUnformatted("Cài đặt"); ImGui::PopFont();
         ImGui::TextDisabled("Thay đổi được lưu khi đóng ứng dụng.");
         ImGui::Spacing();
 
@@ -1284,6 +1343,7 @@ App::App(BluetoothWrapper&& bt, AppConfig& config)
 {
     _preview = getenv("SONY_UI_PREVIEW") != nullptr;
     if (_preview) {
+        _showSettings = getenv("SONY_UI_PREVIEW_SETTINGS") != nullptr;
         if(const char* page=getenv("SONY_UI_PREVIEW_PAGE"))
             _activePage=static_cast<Page>(std::clamp(atoi(page),0,3));
         _connectedDevice = BluetoothDevice("WH-1000XM5", "Preview");

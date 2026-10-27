@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "App.h"
+#include "UiTheme.h"
 #include "Constants.h"
 #include "fonts/CascadiaCode.cpp"
 
@@ -528,7 +529,12 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
     // Create window with graphics context
-    GLFWwindow* window = glfwCreateWindow(GUI_DEFAULT_WIDTH, GUI_DEFAULT_HEIGHT, APP_NAME, NULL, NULL);
+    int initialWidth = GUI_DEFAULT_WIDTH, initialHeight = GUI_DEFAULT_HEIGHT;
+    if (getenv("SONY_UI_PREVIEW")) {
+        if (const char* width = getenv("SONY_UI_PREVIEW_WIDTH")) initialWidth = std::clamp(atoi(width), 700, 1600);
+        if (const char* height = getenv("SONY_UI_PREVIEW_HEIGHT")) initialHeight = std::clamp(atoi(height), 540, 1200);
+    }
+    GLFWwindow* window = glfwCreateWindow(initialWidth, initialHeight, APP_NAME, NULL, NULL);
     if (window == NULL)
         return;
     glfwSetWindowSizeLimits(window, 700, 540, GLFW_DONT_CARE, GLFW_DONT_CARE);
@@ -552,29 +558,7 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
     (void)io;
 
     ImGui::StyleColorsLight();
-    {
-        auto& style=ImGui::GetStyle();
-        style.WindowPadding=ImVec2(24,20); style.FramePadding=ImVec2(14,9);
-        style.ItemSpacing=ImVec2(12,12); style.CellPadding=ImVec2(8,6);
-        style.ChildRounding=18; style.FrameRounding=9; style.PopupRounding=12;
-        style.WindowBorderSize=0; style.ChildBorderSize=1; style.FrameBorderSize=0;
-        style.ScrollbarSize=6; style.GrabRounding=8;
-        auto& c=style.Colors;
-        c[ImGuiCol_WindowBg]=ImVec4(.963f,.959f,.976f,1);
-        c[ImGuiCol_ChildBg]=ImVec4(1,1,1,1);
-        c[ImGuiCol_Text]=ImVec4(.10f,.085f,.15f,1);
-        c[ImGuiCol_TextDisabled]=ImVec4(.32f,.30f,.38f,1);
-        c[ImGuiCol_Button]=ImVec4(.89f,.87f,.96f,1);
-        c[ImGuiCol_ButtonHovered]=ImVec4(.81f,.77f,.93f,1);
-        c[ImGuiCol_ButtonActive]=ImVec4(.73f,.67f,.89f,1);
-        c[ImGuiCol_Header]=ImVec4(.89f,.87f,.96f,1);
-        c[ImGuiCol_HeaderHovered]=ImVec4(.85f,.81f,.95f,1);
-        c[ImGuiCol_HeaderActive]=ImVec4(.79f,.73f,.92f,1);
-        c[ImGuiCol_CheckMark]=c[ImGuiCol_SliderGrab]=ImVec4(.42f,.33f,.68f,1);
-        c[ImGuiCol_FrameBg]=ImVec4(.94f,.93f,.97f,1);
-        c[ImGuiCol_Border]=ImVec4(.77f,.73f,.86f,.25f);
-        c[ImGuiCol_Separator]=ImVec4(.89f,.88f,.93f,1);
-    }
+    UiTheme::apply();
 
     // Setup Platform/Renderer backends
 #ifdef __APPLE__
@@ -588,7 +572,7 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
     nswin.titleVisibility = NSWindowTitleHidden;
     nswin.titlebarAppearsTransparent = YES;
     nswin.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
-    nswin.backgroundColor = [NSColor colorWithRed:.963 green:.959 blue:.976 alpha:1];
+    nswin.backgroundColor = [NSColor colorWithRed:UiTheme::canvas.x green:UiTheme::canvas.y blue:UiTheme::canvas.z alpha:1];
     CAMetalLayer *layer = [CAMetalLayer layer];
     layer.device = device;
     layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -753,6 +737,13 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
 #endif
                 ImGui_ImplGlfw_NewFrame();
                 ImGui::NewFrame();
+#ifdef __APPLE__
+                static double lastMotionPreferenceCheck = -1;
+                if (ImGui::GetTime() - lastMotionPreferenceCheck >= 1) {
+                    UiTheme::reduceMotion = [[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion];
+                    lastMotionPreferenceCheck = ImGui::GetTime();
+                }
+#endif
                 app.OnFrame();
                 ImGui::Render();
 #if defined(__APPLE__)
