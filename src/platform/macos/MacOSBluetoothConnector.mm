@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <chrono>
 #include <set>
+#include <cctype>
+#include <signal.h>
+#import <CoreBluetooth/CoreBluetooth.h>
 
 namespace {
 constexpr auto SDP_QUERY_TIMEOUT = std::chrono::seconds(12);
@@ -192,6 +195,18 @@ void MacOSBluetoothConnector::connectToMac(MacOSBluetoothConnector* macOSBluetoo
     }
 }
 void MacOSBluetoothConnector::connect(const std::string& addrStr){
+    // macOS 27 IOBluetooth may wait indefinitely for TCC during initialization.
+    // Let CoreBluetooth request permission asynchronously before entering that API.
+    if ([CBManager authorization] != CBManagerAuthorizationAllowedAlways) {
+        if ([CBManager authorization] == CBManagerAuthorizationNotDetermined) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                static CBCentralManager* permissionRequest;
+                if (!permissionRequest)
+                    permissionRequest = [[CBCentralManager alloc] initWithDelegate:nil queue:nil];
+            });
+        }
+        throw RecoverableException("Cho phép Bluetooth cho Sony Headphones Client trong Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Bluetooth, rồi kết nối lại.", false);
+    }
     // Reap a previous connection thread after a remote disconnect.
     if (uthread.joinable())
         disconnect();
@@ -263,29 +278,66 @@ int MacOSBluetoothConnector::recv(char* buf, size_t length)
 
 std::vector<BluetoothDevice> MacOSBluetoothConnector::getConnectedDevices()
 {
-    // create the output vector
-    std::vector<BluetoothDevice> res;
-    std::set<std::string> seenAddresses;
-    // Include paired devices even when idle. Auto-connect cannot work if discovery
-    // only exposes devices that macOS has already connected on our behalf.
-    for (IOBluetoothDevice* device in [IOBluetoothDevice pairedDevices]) {
-        NSString *address = [device addressString];
-        if (address == nil)
-            continue;
-        BluetoothDevice dev;
-        dev.mac = [address UTF8String];
-        if (!seenAddresses.insert(dev.mac).second)
-            continue;
-        NSString *name = [device name];
-        dev.name = name != nil ? [name UTF8String] : "Unknown Bluetooth device";
-        res.push_back(std::move(dev));
+    @autoreleasepool {
+        // Isolate macOS Bluetooth enumeration: pairedDevices can wait indefinitely
+        // during CoreBluetooth initialization, including while the app is quitting.
+        NSTask* task = [[NSTask alloc] init];
+        task.executableURL = [NSURL fileURLWithPath:@"/usr/sbin/system_profiler"];
+        task.arguments = @[@"SPBluetoothDataType", @"-json", @"-timeout", @"5"];
+        NSPipe* output = [NSPipe pipe];
+        task.standardOutput = output;
+        task.standardError = [NSFileHandle fileHandleWithNullDevice];
+        NSError* error = nil;
+        if (![task launchAndReturnError:&error])
+            throw RecoverableException("Không đọc được danh sách Bluetooth của macOS. Hãy thử Tìm lại.", false);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC),
+            dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                if (task.running) kill(task.processIdentifier, SIGKILL);
+            });
+        NSData* data = [output.fileHandleForReading readDataToEndOfFile];
+        [task waitUntilExit];
+        if (task.terminationStatus != 0 || data.length == 0 || data.length > 2 * 1024 * 1024)
+            throw RecoverableException("macOS chưa trả danh sách Bluetooth. Kiểm tra Bluetooth rồi chọn Tìm lại.", false);
+        id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+        if (![root isKindOfClass:[NSDictionary class]] ||
+            ![root[@"SPBluetoothDataType"] isKindOfClass:[NSArray class]])
+            throw RecoverableException("Dữ liệu Bluetooth của macOS không hợp lệ. Hãy thử Tìm lại.", false);
+        std::vector<BluetoothDevice> result;
+        std::set<std::string> seen;
+        for (id controller in root[@"SPBluetoothDataType"]) {
+            if (![controller isKindOfClass:[NSDictionary class]]) continue;
+            for (NSString* category in @[@"device_connected", @"device_not_connected"]) {
+                id devices = controller[category];
+                if (![devices isKindOfClass:[NSArray class]]) continue;
+                for (id entry in devices) {
+                    if (![entry isKindOfClass:[NSDictionary class]]) continue;
+                    for (id name in entry) {
+                        id fields = entry[name];
+                        if (![name isKindOfClass:[NSString class]] || ![fields isKindOfClass:[NSDictionary class]]) continue;
+                        id address = fields[@"device_address"];
+                        if (![address isKindOfClass:[NSString class]]) continue;
+                        std::string mac([address UTF8String]);
+                        if (mac.size() != 17) continue;
+                        bool valid = true;
+                        for (size_t i = 0; i < mac.size(); ++i) {
+                            if (i % 3 == 2) {
+                                if (mac[i] != ':' && mac[i] != '-') valid = false;
+                                mac[i] = '-';
+                            } else {
+                                const auto c = static_cast<unsigned char>(mac[i]);
+                                if (!std::isxdigit(c)) valid = false;
+                                mac[i] = static_cast<char>(std::tolower(c));
+                            }
+                        }
+                        if (valid && seen.insert(mac).second)
+                            result.emplace_back([name UTF8String], mac);
+                    }
+                }
+            }
+        }
+        std::sort(result.begin(), result.end(), [](const auto& lhs, const auto& rhs) { return lhs.name < rhs.name; });
+        return result;
     }
-
-    std::sort(res.begin(), res.end(), [](const BluetoothDevice& lhs, const BluetoothDevice& rhs) {
-        return lhs.name < rhs.name;
-    });
-
-    return res;
 }
 
 void MacOSBluetoothConnector::disconnect() noexcept

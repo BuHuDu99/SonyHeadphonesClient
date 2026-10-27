@@ -8,6 +8,8 @@ Applications, tháo DMG rồi mở `/Applications/SonyHeadphonesClient.app`.
 
 Build 28 tinh chỉnh bố cục, tương phản và trạng thái điều khiển; danh sách thiết bị
 cuộn riêng, EQ có mốc dB và Apply nổi bật. Quy chuẩn được lưu trong [DESIGN.md](DESIGN.md).
+Bản này cũng kiểm tra quyền Bluetooth trước khi kết nối và giới hạn thời gian dò
+thiết bị để tránh chờ vô hạn khi macOS chưa cấp quyền.
 Xem [phạm vi kiểm tra giao diện](docs/design/ui-build28-verification.md).
 
 - **Pin:** thiết bị một pin hiển thị một giá trị; tai nghe hai bên hiển thị L/R riêng.

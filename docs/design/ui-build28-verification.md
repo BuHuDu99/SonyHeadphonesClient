@@ -16,6 +16,28 @@ its content, purple identity, dark player and sound-control behavior.
   preferences retain their existing behavior.
 - macOS Reduce Motion disables control interpolation. No animation framework added.
 
+## macOS discovery and permission handling
+
+Final installed-app inspection exposed an IOBluetooth initialization wait inside
+macOS 27.0.1 while Bluetooth permission was unavailable. The app now checks the
+public CoreBluetooth authorization state before connecting and gives an actionable
+message when access is unavailable. An undetermined permission request is started
+asynchronously; the UI does not wait inside IOBluetooth for that decision.
+
+Paired-device metadata is read through the built-in `/usr/sbin/system_profiler`
+JSON output in a worker, with a five-second tool timeout and an eight-second process
+watchdog. Only names and addresses are consumed; addresses are validated, normalized
+and deduplicated. Battery values still come exclusively from the existing Sony
+capability-filtered protocol decoder. This does not grant permission or change
+system privacy preferences. No device listing is stored in the repository.
+
+The main event loop keeps serving callbacks while pending work finishes on exit;
+new automatic discovery/connection jobs are stopped once exit is requested.
+The installed app displayed the paired list and permission guidance, then exited
+normally with Cmd-Q. A fresh real-headphone connection was not verified because
+Bluetooth access was unavailable; retry after enabling the existing app in System
+Settings → Privacy & Security → Bluetooth.
+
 ## Reference selection
 
 | Source supplied by the user | Use in this pass |

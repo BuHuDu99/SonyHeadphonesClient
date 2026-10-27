@@ -637,6 +637,10 @@ void EnterGUIMainLoop(std::unique_ptr<IBluetoothConnector> btConnector)
             while (true)
             {
                 glfwPollEvents();
+#ifdef __APPLE__
+                // Service CoreBluetooth permission and main-queue callbacks.
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.001, true);
+#endif
                 if (glfwWindowShouldClose(window)) {
                     exitRequested = true;
                     glfwSetWindowShouldClose(window, GLFW_FALSE);

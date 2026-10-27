@@ -141,7 +141,7 @@ if (APPLE)
     )
     target_sources(SonyHeadphonesClient PRIVATE ${MACOS_APP_RESOURCES})
     target_link_libraries(SonyHeadphonesClient
-        PRIVATE "-framework Foundation -framework IOBluetooth -framework IOKit -framework Metal -framework MetalKit -framework Cocoa -framework CoreVideo -framework QuartzCore"
+        PRIVATE "-framework Foundation -framework IOBluetooth -framework CoreBluetooth -framework IOKit -framework Metal -framework MetalKit -framework Cocoa -framework CoreVideo -framework QuartzCore"
     )
 endif ()
 

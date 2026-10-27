@@ -235,6 +235,9 @@ bool App::prepareForExit()
 {
     _exitRequested = true;
     cancelEqualizerPreview();
+    // Do not block the main run loop in a future destructor while discovery needs it.
+    if ((_connectedDevicesFuture.valid() && !_connectedDevicesFuture.ready()) ||
+        (_connectFuture.valid() && !_connectFuture.ready())) return false;
     return !_headphones || (!_eqSending && !_eqSession.needsRestore());
 }
 
@@ -563,7 +566,7 @@ void App::_drawDeviceDiscovery()
             if (_selectedDevice >= static_cast<int>(_availableDevices.size()))
                 _selectedDevice = -1;
 
-            if (!_autoReconnectPaused && !_connectFuture.valid() && !_config.autoConnectDeviceMac.empty() && now >= _nextAutoConnectAttemptTime) {
+            if (!_exitRequested && !_autoReconnectPaused && !_connectFuture.valid() && !_config.autoConnectDeviceMac.empty() && now >= _nextAutoConnectAttemptTime) {
                 auto savedDevice = std::find_if(_availableDevices.begin(), _availableDevices.end(), [&](const BluetoothDevice& device) {
                     return device.mac == _config.autoConnectDeviceMac;
                 });
@@ -582,7 +585,7 @@ void App::_drawDeviceDiscovery()
 
     // Keep discovery alive while disconnected. This lets a remembered headset
     // become available after the app has already launched.
-    if (!_connectedDevicesFuture.valid() && !_connectFuture.valid() && now - _lastDiscoveryTime >= 5.0) {
+    if (!_exitRequested && !_connectedDevicesFuture.valid() && !_connectFuture.valid() && now - _lastDiscoveryTime >= 5.0) {
         _lastDiscoveryTime = now;
         _connectedDevicesFuture.setFromAsync([this]() { return this->_bt.getConnectedDevices(); });
     }
