@@ -596,6 +596,10 @@ void App::_drawDeviceDiscovery()
 
     const float listHeight = std::clamp(ImGui::GetContentRegionAvail().y - 170.0f, 100.0f, 320.0f);
     ImGui::BeginChild("##PairedDevices",ImVec2(0,listHeight),ImGuiChildFlags_Borders);
+    if (_availableDevices.empty()) {
+        if (_connectedDevicesFuture.valid()) ImGui::TextDisabled("Đang tìm thiết bị...");
+        else ImGui::TextWrapped("Chưa tìm thấy thiết bị. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS rồi chọn Tìm lại.");
+    }
     for (int index = 0; index < static_cast<int>(_availableDevices.size()); ++index) {
         const auto& device = _availableDevices[index];
         std::string label = device.name + "##" + device.mac;
@@ -610,8 +614,6 @@ void App::_drawDeviceDiscovery()
     }
     ImGui::EndChild();
 
-    if (_availableDevices.empty() && !_connectedDevicesFuture.valid())
-        ImGui::TextDisabled("Chưa tìm thấy thiết bị. Ghép đôi tai nghe trong Cài đặt Bluetooth của macOS rồi chọn Tìm lại.");
 
     ImGui::Spacing();
     if (_selectedDevice >= 0 && _selectedDevice < static_cast<int>(_availableDevices.size()))
